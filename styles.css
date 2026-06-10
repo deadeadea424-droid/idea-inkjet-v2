@@ -1,83 +1,178 @@
-:root { --bg:#f6f7fb; --card:#fff; --text:#162033; --muted:#667085; --line:#e4e7ec; --brand:#1d4ed8; --green:#16a34a; --red:#dc2626; }
-*{box-sizing:border-box} body{margin:0;background:var(--bg);font-family:Arial,'Noto Sans Thai',sans-serif;color:var(--text)}
+/* ── Variables ──────────────────────────────────────────────────────────── */
+:root {
+  --bg:    #f6f7fb;
+  --card:  #fff;
+  --text:  #162033;
+  --muted: #667085;
+  --line:  #e4e7ec;
+  --brand: #1d4ed8;
+  --green: #16a34a;
+  --red:   #dc2626;
+  --radius: 14px;
+}
+* { box-sizing: border-box }
+body { margin:0; background:var(--bg); font-family:Arial,'Noto Sans Thai',sans-serif; color:var(--text) }
 
-/* Layout */
-.container{max-width:1180px;margin:auto;padding:18px}
-.top{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
-.brand{font-weight:800;font-size:24px}
-.sub{color:var(--muted);font-size:13px}
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+.container { max-width:1200px; margin:auto; padding:18px }
+.top { display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:16px }
+.brand { font-weight:800; font-size:24px }
+.sub   { color:var(--muted); font-size:13px }
 
-/* Stats grid */
-.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;box-shadow:0 8px 24px rgba(15,23,42,.04)}
-.stat b{display:block;font-size:26px;margin-top:6px}
-.alertCard{border-color:#fca5a5;background:#fff5f5}
-.dangerHead{color:var(--red);margin:0 0 8px}
+/* ── Stats ──────────────────────────────────────────────────────────────── */
+.grid { display:grid; grid-template-columns:repeat(6,1fr); gap:12px }
+.card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:16px;
+        box-shadow:0 4px 16px rgba(15,23,42,.05) }
+.stat b { display:block; font-size:26px; margin-top:6px }
+.statsRow { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:12px }
+.statWide .sub { margin-bottom:4px }
+.alertCard { border-color:#fca5a5; background:#fff5f5 }
+.dangerHead { color:var(--red); margin:0 0 10px }
 
-/* Tabs */
-.tabs{display:flex;gap:8px;overflow:auto;margin:16px 0}
-.tab{border:1px solid var(--line);background:white;border-radius:999px;padding:10px 14px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:6px}
-.tab.active{background:var(--brand);color:#fff;border-color:var(--brand)}
-.badge{background:var(--red);color:#fff;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:700;line-height:1}
+/* ── Tabs ───────────────────────────────────────────────────────────────── */
+.tabs { display:flex; gap:8px; overflow:auto; margin:16px 0; padding-bottom:2px }
+.tab  { border:1px solid var(--line); background:white; border-radius:999px;
+        padding:10px 16px; cursor:pointer; white-space:nowrap; display:flex; align-items:center; gap:6px; font-size:14px }
+.tab.active { background:var(--brand); color:#fff; border-color:var(--brand) }
+.badge { background:var(--red); color:#fff; border-radius:999px; padding:2px 7px; font-size:11px; font-weight:700 }
 
-/* Forms */
-.form{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-.full{grid-column:1/-1}
-label{font-size:13px;color:var(--muted)}
-input,select,textarea{width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;background:white;font-size:15px}
-textarea{min-height:84px}
-button{border:none;border-radius:12px;padding:12px 14px;background:var(--brand);color:white;font-weight:700;cursor:pointer}
-button:disabled{opacity:.6;cursor:not-allowed}
-.btn2{background:#475467}
-.btnGreen{background:var(--green)}
-.btnRed{background:var(--red)}
-.btnSm{padding:6px 12px;font-size:12px;border-radius:8px}
-.balancePreview{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:10px 14px;font-size:14px;color:#166534}
+/* ── Forms ──────────────────────────────────────────────────────────────── */
+.form { display:grid; grid-template-columns:repeat(2,1fr); gap:10px }
+.full { grid-column:1/-1 }
+label { font-size:13px; color:var(--muted); display:block }
+input, select, textarea {
+  width:100%; border:1px solid var(--line); border-radius:10px;
+  padding:11px 12px; background:white; font-size:15px; font-family:inherit;
+  transition:border-color .15s;
+}
+input:focus, select:focus, textarea:focus { outline:none; border-color:var(--brand) }
+textarea { min-height:80px; resize:vertical }
+button {
+  border:none; border-radius:10px; padding:12px 16px;
+  background:var(--brand); color:white; font-weight:700; cursor:pointer; font-size:14px;
+  transition:opacity .15s;
+}
+button:hover   { opacity:.88 }
+button:disabled{ opacity:.55; cursor:not-allowed }
+.btn2     { background:#475467 }
+.btnGreen { background:var(--green) }
+.btnRed   { background:var(--red) }
+.btnPrint { background:#0891b2 }
+.btnSm    { padding:6px 12px; font-size:12px; border-radius:8px }
+.balancePreview { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px;
+                  padding:10px 14px; font-size:14px; color:#166534 }
+.balanceWarn    { background:#fff7ed; border-color:#fed7aa; color:#c2410c }
 
-/* Tables */
-table{width:100%;border-collapse:collapse;background:white;border-radius:14px;overflow:hidden}
-th,td{padding:12px;border-bottom:1px solid var(--line);text-align:left;font-size:14px}
-th{background:#f9fafb;color:#475467}
-.pill{display:inline-block;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
-.rowActions{display:flex;gap:6px;flex-wrap:wrap}
-.rowExpanded td{background:#eff6ff}
-.detailRow td{background:#f8faff;padding:12px 16px;border-bottom:2px solid var(--brand)}
-.orderDetail{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px;font-size:14px}
-.detailFull{grid-column:1/-1}
-.codeBtn{background:none;border:none;color:var(--brand);font-weight:700;cursor:pointer;padding:0;text-decoration:underline;font-size:14px}
-.overdue{color:var(--red);font-weight:700}
-.unpaid{color:var(--red);font-weight:600}
+/* ── Tables ─────────────────────────────────────────────────────────────── */
+table { width:100%; border-collapse:collapse; background:white; border-radius:var(--radius); overflow:hidden }
+th, td { padding:11px 12px; border-bottom:1px solid var(--line); text-align:left; font-size:14px }
+th { background:#f9fafb; color:#475467; font-size:13px }
+.pill { display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap }
+.rowActions { display:flex; gap:6px; flex-wrap:wrap; align-items:center }
+.rowExpanded td { background:#eff6ff }
+.detailRow td { background:#f8faff; padding:12px 16px; border-bottom:2px solid #bfdbfe }
+.orderDetail { display:grid; grid-template-columns:repeat(auto-fill,minmax(185px,1fr)); gap:8px; font-size:14px }
+.detailFull  { grid-column:1/-1 }
+.codeBtn { background:none; border:none; color:var(--brand); font-weight:700; cursor:pointer;
+           padding:0; text-decoration:underline; font-size:14px }
+.overdue { color:var(--red); font-weight:700 }
+.unpaid  { color:var(--red); font-weight:600 }
+.emptyRow { text-align:center; color:var(--muted); padding:24px !important }
 
-/* Table header + filters */
-.tableHeader{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px}
-.filters{display:flex;gap:8px;flex-wrap:wrap}
-.searchInput{border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:14px;min-width:200px;background:white}
-.filterSelect{border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:14px;background:white;width:auto}
+/* ── Table header + filters ─────────────────────────────────────────────── */
+.tableHeader { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:10px }
+.filters { display:flex; gap:8px; flex-wrap:wrap }
+.searchInput  { border:1px solid var(--line); border-radius:10px; padding:10px 14px; font-size:14px; min-width:200px; background:white }
+.filterSelect { border:1px solid var(--line); border-radius:10px; padding:10px 14px; font-size:14px; background:white }
 
-/* Notices */
-.notice{padding:12px;border-radius:12px;background:#ecfdf3;color:#067647;margin:10px 0}
-.error{background:#fef3f2;color:#b42318}
+/* ── Quick filter chips ──────────────────────────────────────────────────── */
+.quickFilters { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px }
+.qBtn { border:1px solid var(--line); background:white; border-radius:999px; padding:6px 14px;
+        font-size:13px; cursor:pointer; color:var(--text); font-weight:500 }
+.qBtn.active { background:var(--brand); color:#fff; border-color:var(--brand) }
 
-/* Responsive table */
-.mobileTable{overflow:auto}
+/* ── Notices ────────────────────────────────────────────────────────────── */
+.notice { padding:12px 16px; border-radius:10px; background:#ecfdf3; color:#067647; margin:10px 0; font-size:14px }
+.error  { background:#fef3f2; color:#b42318 }
 
-/* Two-column layout */
-.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+/* ── Mobile table ────────────────────────────────────────────────────────── */
+.mobileTable { overflow:auto }
 
-/* List items (customers/employees) */
-.listBox{display:flex;flex-direction:column;gap:8px;margin-top:8px}
-.listRow{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f9fafb;border-radius:10px;gap:8px}
-.countBadge{display:inline-block;background:#eef2ff;color:#1e40af;border-radius:999px;padding:2px 8px;font-size:12px;margin-left:8px;font-weight:600}
+/* ── Two-column layout ───────────────────────────────────────────────────── */
+.two { display:grid; grid-template-columns:1fr 1fr; gap:14px }
 
-@media(max-width:800px){
-  .container{padding:12px}
-  .top{align-items:flex-start;flex-direction:column}
-  .grid{grid-template-columns:repeat(2,1fr)}
-  .form,.two{grid-template-columns:1fr}
-  th,td{font-size:13px;padding:10px}
-  .brand{font-size:20px}
-  .card{padding:12px}
-  .tableHeader{flex-direction:column;align-items:flex-start}
-  .searchInput{min-width:100%}
-  .orderDetail{grid-template-columns:1fr 1fr}
+/* ── List items ──────────────────────────────────────────────────────────── */
+.listBox { display:flex; flex-direction:column; gap:8px; margin-top:10px }
+.listRow { display:flex; align-items:center; justify-content:space-between;
+           padding:10px 12px; background:#f9fafb; border-radius:10px; gap:8px }
+.countBadge { display:inline-block; background:#eef2ff; color:#1e40af;
+              border-radius:999px; padding:2px 8px; font-size:12px; margin-left:8px; font-weight:600 }
+
+/* ── Modal ───────────────────────────────────────────────────────────────── */
+.modalOverlay { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:200;
+                display:flex; align-items:center; justify-content:center; padding:16px }
+.modalBox { background:white; border-radius:18px; padding:24px; width:100%;
+            max-width:660px; max-height:92vh; overflow-y:auto }
+.modalHead { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px }
+.closeBtn  { background:#f3f4f6; color:#374151; border-radius:8px; padding:6px 12px; font-size:16px }
+
+/* ── Payment modal ──────────────────────────────────────────────────────── */
+.payInfo { background:#f9fafb; border-radius:12px; padding:14px; margin-bottom:16px }
+.payInfoRow { display:flex; justify-content:space-between; font-size:14px; padding:3px 0 }
+.payInfoRow span { color:var(--muted) }
+.redText { color:var(--red); font-size:17px }
+
+/* ── Print slip (screen preview) ────────────────────────────────────────── */
+.printContent { max-height:60vh; overflow-y:auto; margin-bottom:16px }
+.printActions { display:flex; gap:10px; padding-top:4px }
+.slip { font-family:Arial,'Noto Sans Thai',sans-serif; max-width:400px; margin:0 auto; font-size:14px; color:#111 }
+.slipHeader   { text-align:center; padding:16px 0 12px; border-bottom:3px solid #000; margin-bottom:12px }
+.slipShop     { font-size:22px; font-weight:800 }
+.slipDocType  { font-size:14px; color:#475467; margin-top:2px }
+.slipCode     { font-size:15px; color:#1d4ed8; font-weight:700; margin-top:4px }
+.slipSection  { padding:8px 0; border-bottom:1px dashed #ccc; margin-bottom:4px }
+.slipSectionTitle { font-weight:700; font-size:11px; color:#6b7280; text-transform:uppercase;
+                    letter-spacing:.6px; margin-bottom:6px }
+.slipRow { display:flex; justify-content:space-between; padding:3px 0; font-size:13px; gap:8px }
+.slipRow span:first-child { color:#6b7280; min-width:70px; flex-shrink:0 }
+.slipRow b { text-align:right; flex:1 }
+.slipNote { margin-top:6px; padding:8px; background:#f9fafb; border-radius:6px; font-size:13px; line-height:1.5 }
+.slipPriceSection .slipBalance { border-top:2px solid #000; padding-top:8px; margin-top:6px; font-size:15px }
+.slipSignRow { display:flex; justify-content:space-between; gap:24px; margin-top:28px }
+.slipSign { flex:1; text-align:center }
+.slipSign span { font-size:12px; color:#6b7280; display:block; margin-top:6px }
+.signLine { border-top:1px solid #000; margin:0 8px }
+.slipFooter { text-align:center; font-size:11px; color:#9ca3af; margin-top:16px }
+
+/* ── Print media ─────────────────────────────────────────────────────────── */
+@media print {
+  body * { visibility:hidden }
+  .printContent, .printContent * { visibility:visible }
+  .printContent {
+    position:fixed !important; top:0 !important; left:0 !important;
+    width:100% !important; padding:24px !important;
+    background:white !important; max-height:none !important; overflow:visible !important;
+  }
+  .printActions { display:none !important }
+  @page { size:A5; margin:10mm }
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width:900px) {
+  .grid     { grid-template-columns:repeat(3,1fr) }
+  .statsRow { grid-template-columns:1fr 1fr }
+}
+@media (max-width:700px) {
+  .container { padding:12px }
+  .top { flex-direction:column; align-items:flex-start }
+  .brand { font-size:20px }
+  .card  { padding:12px }
+  .grid  { grid-template-columns:repeat(2,1fr) }
+  .statsRow { grid-template-columns:1fr }
+  .form, .two { grid-template-columns:1fr }
+  th, td { font-size:12px; padding:9px 8px }
+  .tableHeader { flex-direction:column; align-items:flex-start }
+  .searchInput  { min-width:100% }
+  .orderDetail  { grid-template-columns:1fr 1fr }
+  .modalBox { padding:16px }
 }
