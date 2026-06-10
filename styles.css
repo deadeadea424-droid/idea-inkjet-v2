@@ -1,6 +1,83 @@
 :root { --bg:#f6f7fb; --card:#fff; --text:#162033; --muted:#667085; --line:#e4e7ec; --brand:#1d4ed8; --green:#16a34a; --red:#dc2626; }
 *{box-sizing:border-box} body{margin:0;background:var(--bg);font-family:Arial,'Noto Sans Thai',sans-serif;color:var(--text)}
-.container{max-width:1180px;margin:auto;padding:18px}.top{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}.brand{font-weight:800;font-size:24px}.sub{color:var(--muted);font-size:14px}.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;box-shadow:0 8px 24px rgba(15,23,42,.04)}.stat b{display:block;font-size:26px;margin-top:6px}.tabs{display:flex;gap:8px;overflow:auto;margin:16px 0}.tab{border:1px solid var(--line);background:white;border-radius:999px;padding:10px 14px;cursor:pointer;white-space:nowrap}.tab.active{background:var(--brand);color:#fff;border-color:var(--brand)}
-.form{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.full{grid-column:1/-1} label{font-size:13px;color:var(--muted)} input,select,textarea{width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;background:white;font-size:15px} textarea{min-height:84px} button{border:none;border-radius:12px;padding:12px 14px;background:var(--brand);color:white;font-weight:700;cursor:pointer}.btn2{background:#475467}.btnGreen{background:var(--green)}.btnRed{background:var(--red)}
-table{width:100%;border-collapse:collapse;background:white;border-radius:14px;overflow:hidden} th,td{padding:12px;border-bottom:1px solid var(--line);text-align:left;font-size:14px} th{background:#f9fafb;color:#475467}.pill{display:inline-block;padding:6px 10px;border-radius:999px;background:#eef2ff;color:#1e40af;font-size:12px;font-weight:700}.rowActions{display:flex;gap:6px;flex-wrap:wrap}.notice{padding:12px;border-radius:12px;background:#ecfdf3;color:#067647;margin:10px 0}.error{background:#fef3f2;color:#b42318}.mobileTable{overflow:auto}.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-@media(max-width:800px){.container{padding:12px}.top{align-items:flex-start;flex-direction:column}.grid{grid-template-columns:repeat(2,1fr)}.form,.two{grid-template-columns:1fr} th,td{font-size:13px;padding:10px}.brand{font-size:20px}.card{padding:12px}}
+
+/* Layout */
+.container{max-width:1180px;margin:auto;padding:18px}
+.top{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
+.brand{font-weight:800;font-size:24px}
+.sub{color:var(--muted);font-size:13px}
+
+/* Stats grid */
+.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;box-shadow:0 8px 24px rgba(15,23,42,.04)}
+.stat b{display:block;font-size:26px;margin-top:6px}
+.alertCard{border-color:#fca5a5;background:#fff5f5}
+.dangerHead{color:var(--red);margin:0 0 8px}
+
+/* Tabs */
+.tabs{display:flex;gap:8px;overflow:auto;margin:16px 0}
+.tab{border:1px solid var(--line);background:white;border-radius:999px;padding:10px 14px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.tab.active{background:var(--brand);color:#fff;border-color:var(--brand)}
+.badge{background:var(--red);color:#fff;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:700;line-height:1}
+
+/* Forms */
+.form{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.full{grid-column:1/-1}
+label{font-size:13px;color:var(--muted)}
+input,select,textarea{width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;background:white;font-size:15px}
+textarea{min-height:84px}
+button{border:none;border-radius:12px;padding:12px 14px;background:var(--brand);color:white;font-weight:700;cursor:pointer}
+button:disabled{opacity:.6;cursor:not-allowed}
+.btn2{background:#475467}
+.btnGreen{background:var(--green)}
+.btnRed{background:var(--red)}
+.btnSm{padding:6px 12px;font-size:12px;border-radius:8px}
+.balancePreview{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:10px 14px;font-size:14px;color:#166534}
+
+/* Tables */
+table{width:100%;border-collapse:collapse;background:white;border-radius:14px;overflow:hidden}
+th,td{padding:12px;border-bottom:1px solid var(--line);text-align:left;font-size:14px}
+th{background:#f9fafb;color:#475467}
+.pill{display:inline-block;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
+.rowActions{display:flex;gap:6px;flex-wrap:wrap}
+.rowExpanded td{background:#eff6ff}
+.detailRow td{background:#f8faff;padding:12px 16px;border-bottom:2px solid var(--brand)}
+.orderDetail{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px;font-size:14px}
+.detailFull{grid-column:1/-1}
+.codeBtn{background:none;border:none;color:var(--brand);font-weight:700;cursor:pointer;padding:0;text-decoration:underline;font-size:14px}
+.overdue{color:var(--red);font-weight:700}
+.unpaid{color:var(--red);font-weight:600}
+
+/* Table header + filters */
+.tableHeader{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+.filters{display:flex;gap:8px;flex-wrap:wrap}
+.searchInput{border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:14px;min-width:200px;background:white}
+.filterSelect{border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:14px;background:white;width:auto}
+
+/* Notices */
+.notice{padding:12px;border-radius:12px;background:#ecfdf3;color:#067647;margin:10px 0}
+.error{background:#fef3f2;color:#b42318}
+
+/* Responsive table */
+.mobileTable{overflow:auto}
+
+/* Two-column layout */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+
+/* List items (customers/employees) */
+.listBox{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.listRow{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f9fafb;border-radius:10px;gap:8px}
+.countBadge{display:inline-block;background:#eef2ff;color:#1e40af;border-radius:999px;padding:2px 8px;font-size:12px;margin-left:8px;font-weight:600}
+
+@media(max-width:800px){
+  .container{padding:12px}
+  .top{align-items:flex-start;flex-direction:column}
+  .grid{grid-template-columns:repeat(2,1fr)}
+  .form,.two{grid-template-columns:1fr}
+  th,td{font-size:13px;padding:10px}
+  .brand{font-size:20px}
+  .card{padding:12px}
+  .tableHeader{flex-direction:column;align-items:flex-start}
+  .searchInput{min-width:100%}
+  .orderDetail{grid-template-columns:1fr 1fr}
+}
