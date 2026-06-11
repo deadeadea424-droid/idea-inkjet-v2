@@ -50,6 +50,49 @@ const fmtDate  = (d?: string) => {
 };
 const orderCode = (o: Order) => o.order_code || `JOB-${String(o.id).padStart(4,'0')}`;
 
+// ─── Self-healing DB layer ────────────────────────────────────────────────────
+// Detects column-name mismatches at runtime and retries with the actual DB name.
+const colMap: Record<string, Record<string, string>> = {};
+
+function applyMap(table: string, data: Record<string, any>): Record<string, any> {
+  const m = colMap[table];
+  if (!m) return data;
+  const out: Record<string, any> = { ...data };
+  for (const [k, v] of Object.entries(m)) {
+    if (k in out && !(v in out)) { out[v] = out[k]; delete out[k]; }
+  }
+  return out;
+}
+
+function tryLearn(table: string, msg: string): boolean {
+  const m = msg.match(/null value in column "([^"]+)"/);
+  if (!m) return false;
+  const dbCol   = m[1];
+  const prefix  = table.replace(/s$/, '') + '_';     // employees→employee_
+  const shortCol = dbCol.startsWith(prefix) ? dbCol.slice(prefix.length) : null;
+  if (!shortCol) return false;
+  colMap[table] = { ...(colMap[table] ?? {}), [shortCol]: dbCol };
+  return true;
+}
+
+async function dbInsert(table: string, data: Record<string, any>) {
+  const res = await supabase.from(table).insert(applyMap(table, data)).select().single();
+  if (!res.error) return res;
+  if (tryLearn(table, res.error.message)) {
+    return supabase.from(table).insert(applyMap(table, data)).select().single();
+  }
+  return res;
+}
+
+async function dbUpdate(table: string, id: number, data: Record<string, any>) {
+  const res = await supabase.from(table).update(applyMap(table, data)).eq('id', id);
+  if (!res.error) return res;
+  if (tryLearn(table, res.error.message)) {
+    return supabase.from(table).update(applyMap(table, data)).eq('id', id);
+  }
+  return res;
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Home() {
   // Core
@@ -103,7 +146,7 @@ export default function Home() {
     if (c.error || e.error || o.error) {
       setError(c.error?.message || e.error?.message || o.error?.message || 'โหลดข้อมูลไม่สำเร็จ'); return;
     }
-    // Normalize column names — DB may use employee_name / customer_name
+    // Normalize to our TypeScript shape (DB may use prefixed column names)
     const custNorm: Customer[] = (c.data || []).map((x: any) => ({
       id: x.id,
       name: x.name ?? x.customer_name ?? '',
@@ -119,15 +162,25 @@ export default function Home() {
     }));
     const custMap = Object.fromEntries(custNorm.map(x => [x.id, x]));
     const empMap  = Object.fromEntries(empNorm.map(x => [x.id, x]));
-    const enriched = (o.data || []).map((row: any) => ({
+    const ordNorm = (o.data || []).map((row: any) => ({
       ...row,
-      customers:  custMap[row.customer_id]   ?? undefined,
-      designer:   empMap[row.designer_id]    ?? undefined,
-      production: empMap[row.production_id]  ?? undefined,
+      title:    row.title    ?? row.order_title   ?? '',
+      status:   row.status   ?? row.order_status  ?? 'รับงานใหม่',
+      size:     row.size     ?? row.order_size     ?? '',
+      quantity: row.quantity ?? row.order_quantity ?? 1,
+      material: row.material ?? row.order_material ?? '',
+      price:    Number(row.price    ?? row.order_price   ?? 0),
+      deposit:  Number(row.deposit  ?? row.order_deposit  ?? 0),
+      balance:  Number(row.balance  ?? row.order_balance  ?? 0),
+      detail:   row.detail   ?? row.order_detail   ?? '',
+      due_date: row.due_date ?? row.order_due_date ?? null,
+      customers:  custMap[row.customer_id]  ?? undefined,
+      designer:   empMap[row.designer_id]   ?? undefined,
+      production: empMap[row.production_id] ?? undefined,
     }));
     setCustomers(custNorm);
     setEmployees(empNorm);
-    setOrders(enriched);
+    setOrders(ordNorm);
   }
   useEffect(() => { load(); }, []);
 
@@ -176,27 +229,19 @@ export default function Home() {
   // ── Create ────────────────────────────────────────────────────────────────
   async function addCustomer(e: React.FormEvent) {
     e.preventDefault(); setError('');
-    const res = await supabase.from('customers').insert({
-      customer_name: custForm.name,
-      phone: custForm.phone,
-      line_id: custForm.line_id,
-      contact_channel: custForm.contact_channel,
+    const res = await dbInsert('customers', {
+      name: custForm.name, phone: custForm.phone,
+      line_id: custForm.line_id, contact_channel: custForm.contact_channel,
     });
-    if (res.error) {
-      // Fallback: DB might use 'name' column instead
-      const res2 = await supabase.from('customers').insert(custForm);
-      if (res2.error) { setError(res2.error.message); return; }
-    }
+    if (res.error) { setError(res.error.message); return; }
     setCustForm({ name:'', phone:'', line_id:'', contact_channel:'LINE' });
     show('เพิ่มลูกค้าแล้ว'); load();
   }
 
   async function addEmployee(e: React.FormEvent) {
     e.preventDefault(); setError('');
-    const res = await supabase.from('employees').insert({
-      employee_name: empForm.name,
-      position: empForm.position,
-      role: empForm.role,
+    const res = await dbInsert('employees', {
+      name: empForm.name, position: empForm.position, role: empForm.role,
     });
     if (res.error) { setError(res.error.message); return; }
     setEmpForm({ name:'', position:'', role:'graphic' });
@@ -207,7 +252,7 @@ export default function Home() {
     e.preventDefault(); setError('');
     const price   = Number(orderForm.price   || 0);
     const deposit = Number(orderForm.deposit || 0);
-    const row: Record<string, unknown> = {
+    const res = await dbInsert('orders', {
       ...orderForm,
       customer_id:   Number(orderForm.customer_id),
       quantity:      Number(orderForm.quantity || 1),
@@ -215,11 +260,10 @@ export default function Home() {
       status: 'รับงานใหม่',
       designer_id:   orderForm.designer_id   ? Number(orderForm.designer_id)   : null,
       production_id: orderForm.production_id ? Number(orderForm.production_id) : null,
-    };
-    const res = await supabase.from('orders').insert(row).select().single();
+    });
     if (res.error) { setError(res.error.message); return; }
     await supabase.from('order_status_logs').insert({
-      order_id: res.data.id, old_status: '', new_status: 'รับงานใหม่', note: 'เปิดงานใหม่',
+      order_id: res.data?.id, old_status: '', new_status: 'รับงานใหม่', note: 'เปิดงานใหม่',
     });
     setOrderForm(EMPTY_ORDER);
     show('เปิดงานใหม่แล้ว'); setTab('orders'); load();
@@ -260,7 +304,7 @@ export default function Home() {
     } else {
       balance = Number(editingOrder.balance);
     }
-    const res = await supabase.from('orders').update({
+    const res = await dbUpdate('orders', editingOrder.id, {
       customer_id:   Number(editForm.customer_id),
       title:         editForm.title,
       order_type:    editForm.order_type,
@@ -273,7 +317,7 @@ export default function Home() {
       designer_id:   editForm.designer_id   ? Number(editForm.designer_id)   : null,
       production_id: editForm.production_id ? Number(editForm.production_id) : null,
       updated_at: new Date().toISOString(),
-    }).eq('id', editingOrder.id);
+    });
     if (res.error) { setError(res.error.message); return; }
     setEditingOrder(null);
     show('แก้ไขงานแล้ว'); load();
@@ -288,18 +332,7 @@ export default function Home() {
     e.preventDefault();
     if (!editCust) return;
     setError('');
-    const res = await supabase.from('customers').update({
-      customer_name: editCustForm.name,
-      phone: editCustForm.phone,
-      line_id: editCustForm.line_id,
-      contact_channel: editCustForm.contact_channel,
-    }).eq('id', editCust.id);
-    if (res.error) {
-      // Fallback: DB might use 'name' column instead
-      const res2 = await supabase.from('customers').update(editCustForm).eq('id', editCust.id);
-      if (res2.error) { setError(res2.error.message); return; }
-      setEditCust(null); show('แก้ไขลูกค้าแล้ว'); load(); return;
-    }
+    const res = await dbUpdate('customers', editCust.id, editCustForm);
     if (res.error) { setError(res.error.message); return; }
     setEditCust(null);
     show('แก้ไขลูกค้าแล้ว'); load();
@@ -314,11 +347,7 @@ export default function Home() {
     e.preventDefault();
     if (!editEmp) return;
     setError('');
-    const res = await supabase.from('employees').update({
-      employee_name: editEmpForm.name,
-      position: editEmpForm.position,
-      role: editEmpForm.role,
-    }).eq('id', editEmp.id);
+    const res = await dbUpdate('employees', editEmp.id, editEmpForm);
     if (res.error) { setError(res.error.message); return; }
     setEditEmp(null);
     show('แก้ไขพนักงานแล้ว'); load();
