@@ -157,6 +157,42 @@ th { background:#f9fafb; color:#475467; font-size:13px }
   @page { size:A5; margin:10mm }
 }
 
+/* ── Date filter row ─────────────────────────────────────────────────────── */
+.dateFilterRow { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px }
+.dateFilterRow label { font-size:13px; color:var(--muted); margin-bottom:0 }
+.dateFilterRow input { width:auto; padding:8px 12px; font-size:13px }
+.exportBtn { background:#0891b2 }
+
+/* ── Due-today highlight ─────────────────────────────────────────────────── */
+.dueToday { color:#c2410c; font-weight:700 }
+
+/* ── Log timeline ────────────────────────────────────────────────────────── */
+.logTimeline { display:flex; flex-direction:column; gap:0; padding:4px 0 }
+.logEntry    { display:flex; gap:10px; position:relative }
+.logEntry + .logEntry .logLine { display:block }
+.logLine { display:block; position:absolute; left:7px; top:-14px; width:2px; height:14px; background:#e4e7ec }
+.logDot  { width:16px; height:16px; border-radius:50%; background:var(--brand);
+           flex-shrink:0; margin-top:2px; border:2px solid white; box-shadow:0 0 0 2px var(--brand) }
+.logBody { flex:1; padding-bottom:12px }
+.logStatus { font-weight:700; font-size:13px }
+.logNote   { font-size:12px; color:var(--muted); margin-top:2px }
+.logTime   { font-size:11px; color:#9ca3af; margin-top:2px }
+.logLabel  { font-size:11px; color:var(--muted); margin-bottom:6px; font-style:italic }
+
+/* ── Analytics tab ───────────────────────────────────────────────────────── */
+.analyticsGrid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px }
+.summaryGrid   { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:14px }
+.summaryCard   { background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+                 padding:16px; box-shadow:0 2px 8px rgba(15,23,42,.04) }
+.summaryCard .value { font-size:26px; font-weight:800; margin-top:4px }
+.summaryCard .label { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px }
+.summaryCard .delta { font-size:12px; margin-top:4px }
+.chartTitle { font-size:15px; font-weight:700; margin:0 0 12px }
+
+/* ── Colored count badges ────────────────────────────────────────────────── */
+.greenBadge { background:#dcfce7; color:#166534 }
+.redBadge   { background:#fee2e2; color:#991b1b }
+
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width:900px) {
   .grid     { grid-template-columns:repeat(3,1fr) }
