@@ -4,13 +4,15 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Customer = { id: number; name: string; phone: string; line_id: string; contact_channel: string };
+type Customer  = { id: number; name: string; phone: string; line_id: string; contact_channel: string };
 type Employee  = { id: number; name: string; position: string; role: string };
+type StatusLog = { id: number; order_id: number; old_status: string; new_status: string; note: string; created_at: string };
 type Order = {
   id: number; order_code: string; title: string; status: string;
   due_date: string; price: number; deposit: number; balance: number;
   customer_id: number; designer_id: number | null; production_id: number | null;
   detail: string; order_type: string; size: string; quantity: number; material: string;
+  created_at: string;
   customers?: Customer; designer?: Employee; production?: Employee;
 };
 
@@ -51,7 +53,6 @@ const fmtDate  = (d?: string) => {
 const orderCode = (o: Order) => o.order_code || `JOB-${String(o.id).padStart(4,'0')}`;
 
 // ─── Self-healing DB layer ────────────────────────────────────────────────────
-// Detects column-name mismatches at runtime and retries with the actual DB name.
 const colMap: Record<string, Record<string, string>> = {};
 
 function applyMap(table: string, data: Record<string, any>): Record<string, any> {
@@ -67,8 +68,8 @@ function applyMap(table: string, data: Record<string, any>): Record<string, any>
 function tryLearn(table: string, msg: string): boolean {
   const m = msg.match(/null value in column "([^"]+)"/);
   if (!m) return false;
-  const dbCol   = m[1];
-  const prefix  = table.replace(/s$/, '') + '_';     // employees→employee_
+  const dbCol    = m[1];
+  const prefix   = table.replace(/s$/, '') + '_';
   const shortCol = dbCol.startsWith(prefix) ? dbCol.slice(prefix.length) : null;
   if (!shortCol) return false;
   colMap[table] = { ...(colMap[table] ?? {}), [shortCol]: dbCol };
@@ -95,7 +96,6 @@ async function dbUpdate(table: string, id: number, data: Record<string, any>) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Home() {
-  // Core
   const [tab, setTab]             = useState('dashboard');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -104,35 +104,30 @@ export default function Home() {
   const [error, setError]         = useState('');
   const [loading, setLoading]     = useState(false);
 
-  // Create forms
   const [custForm, setCustForm]   = useState({ name:'', phone:'', line_id:'', contact_channel:'LINE' });
   const [empForm,  setEmpForm]    = useState({ name:'', position:'', role:'graphic' });
   const [orderForm, setOrderForm] = useState(EMPTY_ORDER);
 
-  // Filter / search
   const [search,       setSearch]       = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [quickFilter,  setQuickFilter]  = useState('');
   const [expandedId,   setExpandedId]   = useState<number | null>(null);
+  const [dateFrom,     setDateFrom]     = useState('');
+  const [dateTo,       setDateTo]       = useState('');
 
-  // Edit-order modal
+  const [orderLogs,   setOrderLogs]   = useState<StatusLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsFor,     setLogsFor]     = useState<number | null>(null);
+
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [editForm,     setEditForm]     = useState(EMPTY_ORDER);
-
-  // Payment modal
-  const [payingOrder, setPayingOrder] = useState<Order | null>(null);
-  const [payForm,     setPayForm]     = useState({ amount:'', method:'เงินสด' });
-
-  // Print modal
-  const [printOrder, setPrintOrder] = useState<Order | null>(null);
-
-  // Edit-customer modal
+  const [payingOrder,  setPayingOrder]  = useState<Order | null>(null);
+  const [payForm,      setPayForm]      = useState({ amount:'', method:'เงินสด' });
+  const [printOrder,   setPrintOrder]   = useState<Order | null>(null);
   const [editCust,     setEditCust]     = useState<Customer | null>(null);
   const [editCustForm, setEditCustForm] = useState({ name:'', phone:'', line_id:'', contact_channel:'' });
-
-  // Edit-employee modal
-  const [editEmp,     setEditEmp]     = useState<Employee | null>(null);
-  const [editEmpForm, setEditEmpForm] = useState({ name:'', position:'', role:'graphic' });
+  const [editEmp,      setEditEmp]      = useState<Employee | null>(null);
+  const [editEmpForm,  setEditEmpForm]  = useState({ name:'', position:'', role:'graphic' });
 
   // ── Load ────────────────────────────────────────────────────────────────────
   async function load() {
@@ -146,19 +141,13 @@ export default function Home() {
     if (c.error || e.error || o.error) {
       setError(c.error?.message || e.error?.message || o.error?.message || 'โหลดข้อมูลไม่สำเร็จ'); return;
     }
-    // Normalize to our TypeScript shape (DB may use prefixed column names)
     const custNorm: Customer[] = (c.data || []).map((x: any) => ({
-      id: x.id,
-      name: x.name ?? x.customer_name ?? '',
-      phone: x.phone ?? '',
-      line_id: x.line_id ?? '',
-      contact_channel: x.contact_channel ?? 'LINE',
+      id: x.id, name: x.name ?? x.customer_name ?? '',
+      phone: x.phone ?? '', line_id: x.line_id ?? '', contact_channel: x.contact_channel ?? 'LINE',
     }));
     const empNorm: Employee[] = (e.data || []).map((x: any) => ({
-      id: x.id,
-      name: x.name ?? x.employee_name ?? '',
-      position: x.position ?? '',
-      role: x.role ?? 'graphic',
+      id: x.id, name: x.name ?? x.employee_name ?? '',
+      position: x.position ?? '', role: x.role ?? 'graphic',
     }));
     const custMap = Object.fromEntries(custNorm.map(x => [x.id, x]));
     const empMap  = Object.fromEntries(empNorm.map(x => [x.id, x]));
@@ -169,43 +158,48 @@ export default function Home() {
       size:     row.size     ?? row.order_size     ?? '',
       quantity: row.quantity ?? row.order_quantity ?? 1,
       material: row.material ?? row.order_material ?? '',
-      price:    Number(row.price    ?? row.order_price   ?? 0),
-      deposit:  Number(row.deposit  ?? row.order_deposit  ?? 0),
-      balance:  Number(row.balance  ?? row.order_balance  ?? 0),
+      price:    Number(row.price   ?? row.order_price   ?? 0),
+      deposit:  Number(row.deposit ?? row.order_deposit  ?? 0),
+      balance:  Number(row.balance ?? row.order_balance  ?? 0),
       detail:   row.detail   ?? row.order_detail   ?? '',
       due_date: row.due_date ?? row.order_due_date ?? null,
+      created_at: row.created_at ?? null,
       customers:  custMap[row.customer_id]  ?? undefined,
       designer:   empMap[row.designer_id]   ?? undefined,
       production: empMap[row.production_id] ?? undefined,
     }));
-    setCustomers(custNorm);
-    setEmployees(empNorm);
-    setOrders(ordNorm);
+    setCustomers(custNorm); setEmployees(empNorm); setOrders(ordNorm);
   }
   useEffect(() => { load(); }, []);
 
-  // ── Computed ─────────────────────────────────────────────────────────────────
+  async function loadOrderLogs(orderId: number) {
+    setLogsLoading(true); setLogsFor(orderId);
+    const { data } = await supabase.from('order_status_logs')
+      .select('*').eq('order_id', orderId).order('created_at', { ascending: true });
+    setOrderLogs(data || []); setLogsLoading(false);
+  }
+
+  // ── Computed ──────────────────────────────────────────────────────────────────
   const today = new Date().toISOString().slice(0, 10);
 
   const stats = useMemo(() => {
     const active = orders.filter(x => !['ชำระเงินแล้ว','ยกเลิก'].includes(x.status));
     return {
-      total:      orders.length,
-      new:        orders.filter(x => x.status === 'รับงานใหม่').length,
-      design:     orders.filter(x => x.status === 'กำลังออกแบบ').length,
-      production: orders.filter(x => x.status === 'กำลังผลิต').length,
-      overdue:    active.filter(x => x.due_date && new Date(x.due_date) < new Date()).length,
-      unpaid:     orders.filter(x => Number(x.balance) > 0).length,
-      sales:      orders.reduce((s, x) => s + Number(x.price || 0), 0),
-      collected:  orders.filter(x => x.status === 'ชำระเงินแล้ว').reduce((s, x) => s + Number(x.price || 0), 0),
+      total:       orders.length,
+      new:         orders.filter(x => x.status === 'รับงานใหม่').length,
+      design:      orders.filter(x => x.status === 'กำลังออกแบบ').length,
+      production:  orders.filter(x => x.status === 'กำลังผลิต').length,
+      overdue:     active.filter(x => x.due_date && new Date(x.due_date) < new Date()).length,
+      unpaid:      orders.filter(x => Number(x.balance) > 0).length,
+      sales:       orders.reduce((s, x) => s + Number(x.price || 0), 0),
+      collected:   orders.filter(x => x.status === 'ชำระเงินแล้ว').reduce((s, x) => s + Number(x.price || 0), 0),
       outstanding: orders.reduce((s, x) => s + Number(x.balance || 0), 0),
     };
   }, [orders]);
 
   const todayOrders = useMemo(() =>
     orders.filter(x => x.due_date === today && !['ชำระเงินแล้ว','ยกเลิก'].includes(x.status)),
-    [orders, today]
-  );
+    [orders, today]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -214,19 +208,62 @@ export default function Home() {
               !(o.customers?.name || '').toLowerCase().includes(q) &&
               !orderCode(o).toLowerCase().includes(q)) return false;
       if (statusFilter && o.status !== statusFilter) return false;
+      if (dateFrom && o.created_at && o.created_at.slice(0,10) < dateFrom) return false;
+      if (dateTo   && o.created_at && o.created_at.slice(0,10) > dateTo)   return false;
       const active = !['ชำระเงินแล้ว','ยกเลิก'].includes(o.status);
-      if (quickFilter === 'today'   && !(o.due_date === today && active)) return false;
-      if (quickFilter === 'overdue' && !(o.due_date && new Date(o.due_date) < new Date() && active)) return false;
-      if (quickFilter === 'unpaid'  && !(Number(o.balance) > 0)) return false;
+      if (quickFilter === 'today'      && !(o.due_date === today && active)) return false;
+      if (quickFilter === 'overdue'    && !(o.due_date && new Date(o.due_date) < new Date() && active)) return false;
+      if (quickFilter === 'unpaid'     && !(Number(o.balance) > 0)) return false;
       if (quickFilter === 'production' && o.status !== 'กำลังผลิต') return false;
       return true;
     });
-  }, [orders, search, statusFilter, quickFilter, today]);
+  }, [orders, search, statusFilter, quickFilter, today, dateFrom, dateTo]);
 
-  // ── Toast ─────────────────────────────────────────────────────────────────
+  const monthlyData = useMemo(() => {
+    const map: Record<string, { revenue: number; count: number }> = {};
+    orders.forEach(o => {
+      const key = (o.created_at || '').slice(0, 7);
+      if (!key) return;
+      if (!map[key]) map[key] = { revenue: 0, count: 0 };
+      map[key].revenue += Number(o.price || 0);
+      map[key].count++;
+    });
+    return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0])).slice(-6);
+  }, [orders]);
+
+  const topCustomers = useMemo(() => {
+    const map: Record<number, { name: string; count: number; total: number; unpaid: number }> = {};
+    orders.forEach(o => {
+      if (!o.customer_id) return;
+      if (!map[o.customer_id]) map[o.customer_id] = { name: o.customers?.name || '?', count: 0, total: 0, unpaid: 0 };
+      map[o.customer_id].count++;
+      map[o.customer_id].total  += Number(o.price   || 0);
+      map[o.customer_id].unpaid += Number(o.balance || 0);
+    });
+    return Object.values(map).sort((a, b) => b.total - a.total).slice(0, 10);
+  }, [orders]);
+
+  // ── Toast ──────────────────────────────────────────────────────────────────
   function show(msg: string) { setMessage(msg); setTimeout(() => setMessage(''), 2500); }
 
-  // ── Create ────────────────────────────────────────────────────────────────
+  // ── Export CSV ─────────────────────────────────────────────────────────────
+  function exportCSV() {
+    const headers = ['เลขงาน','ลูกค้า','ชื่องาน','ประเภท','สถานะ','วันนัดส่ง','ราคา','มัดจำ','ค้างชำระ','วันที่สร้าง'];
+    const rows = filtered.map(o => [
+      orderCode(o), o.customers?.name || '', o.title, o.order_type || '', o.status,
+      o.due_date || '', o.price, o.deposit, o.balance, (o.created_at || '').slice(0,10),
+    ]);
+    const csv = [headers, ...rows]
+      .map(r => r.map(v => `"${String(v ?? '').replace(/"/g,'""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `orders-${today}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── Create ─────────────────────────────────────────────────────────────────
   async function addCustomer(e: React.FormEvent) {
     e.preventDefault(); setError('');
     const res = await dbInsert('customers', {
@@ -265,24 +302,18 @@ export default function Home() {
     await supabase.from('order_status_logs').insert({
       order_id: res.data?.id, old_status: '', new_status: 'รับงานใหม่', note: 'เปิดงานใหม่',
     });
-    setOrderForm(EMPTY_ORDER);
-    show('เปิดงานใหม่แล้ว'); setTab('orders'); load();
+    setOrderForm(EMPTY_ORDER); show('เปิดงานใหม่แล้ว'); setTab('orders'); load();
   }
 
-  // ── Update ────────────────────────────────────────────────────────────────
+  // ── Update ─────────────────────────────────────────────────────────────────
   function openEditOrder(o: Order) {
     setEditingOrder(o);
     setEditForm({
-      customer_id:   String(o.customer_id || ''),
-      title:         o.title || '',
-      order_type:    o.order_type || 'ป้ายไวนิล',
-      detail:        o.detail || '',
-      size:          o.size || '',
-      quantity:      String(o.quantity || 1),
-      material:      o.material || '',
-      price:         String(o.price || 0),
-      deposit:       String(o.deposit || 0),
-      due_date:      o.due_date || '',
+      customer_id:   String(o.customer_id || ''),   title:    o.title || '',
+      order_type:    o.order_type || 'ป้ายไวนิล',   detail:   o.detail || '',
+      size:          o.size || '',                   quantity: String(o.quantity || 1),
+      material:      o.material || '',               price:    String(o.price || 0),
+      deposit:       String(o.deposit || 0),         due_date: o.due_date || '',
       designer_id:   o.designer_id   ? String(o.designer_id)   : '',
       production_id: o.production_id ? String(o.production_id) : '',
     });
@@ -290,11 +321,9 @@ export default function Home() {
 
   async function updateOrder(e: React.FormEvent) {
     e.preventDefault();
-    if (!editingOrder) return;
-    setError('');
+    if (!editingOrder) return; setError('');
     const price   = Number(editForm.price   || 0);
     const deposit = Number(editForm.deposit || 0);
-    // Preserve already-paid amounts when price/deposit didn't change
     const priceChanged   = price   !== Number(editingOrder.price);
     const depositChanged = deposit !== Number(editingOrder.deposit);
     let balance: number;
@@ -305,62 +334,47 @@ export default function Home() {
       balance = Number(editingOrder.balance);
     }
     const res = await dbUpdate('orders', editingOrder.id, {
-      customer_id:   Number(editForm.customer_id),
-      title:         editForm.title,
-      order_type:    editForm.order_type,
-      detail:        editForm.detail,
-      size:          editForm.size,
-      quantity:      Number(editForm.quantity || 1),
-      material:      editForm.material,
-      price, deposit, balance,
-      due_date:      editForm.due_date || null,
+      customer_id: Number(editForm.customer_id), title: editForm.title,
+      order_type: editForm.order_type, detail: editForm.detail, size: editForm.size,
+      quantity: Number(editForm.quantity || 1), material: editForm.material,
+      price, deposit, balance, due_date: editForm.due_date || null,
       designer_id:   editForm.designer_id   ? Number(editForm.designer_id)   : null,
       production_id: editForm.production_id ? Number(editForm.production_id) : null,
       updated_at: new Date().toISOString(),
     });
     if (res.error) { setError(res.error.message); return; }
-    setEditingOrder(null);
-    show('แก้ไขงานแล้ว'); load();
+    setEditingOrder(null); show('แก้ไขงานแล้ว'); load();
   }
 
   function openEditCustomer(c: Customer) {
     setEditCust(c);
     setEditCustForm({ name: c.name, phone: c.phone || '', line_id: c.line_id || '', contact_channel: c.contact_channel || '' });
   }
-
   async function updateCustomer(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editCust) return;
-    setError('');
+    e.preventDefault(); if (!editCust) return; setError('');
     const res = await dbUpdate('customers', editCust.id, editCustForm);
     if (res.error) { setError(res.error.message); return; }
-    setEditCust(null);
-    show('แก้ไขลูกค้าแล้ว'); load();
+    setEditCust(null); show('แก้ไขลูกค้าแล้ว'); load();
   }
 
   function openEditEmployee(emp: Employee) {
     setEditEmp(emp);
     setEditEmpForm({ name: emp.name, position: emp.position || '', role: emp.role || 'graphic' });
   }
-
   async function updateEmployee(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editEmp) return;
-    setError('');
+    e.preventDefault(); if (!editEmp) return; setError('');
     const res = await dbUpdate('employees', editEmp.id, editEmpForm);
     if (res.error) { setError(res.error.message); return; }
-    setEditEmp(null);
-    show('แก้ไขพนักงานแล้ว'); load();
+    setEditEmp(null); show('แก้ไขพนักงานแล้ว'); load();
   }
 
-  // ── Delete ────────────────────────────────────────────────────────────────
+  // ── Delete ─────────────────────────────────────────────────────────────────
   async function deleteCustomer(id: number) {
     if (!confirm('ลบลูกค้านี้?')) return;
     const { error } = await supabase.from('customers').delete().eq('id', id);
     if (error) { setError(error.message); return; }
     show('ลบลูกค้าแล้ว'); load();
   }
-
   async function deleteEmployee(id: number) {
     if (!confirm('ลบพนักงานนี้?')) return;
     const { error } = await supabase.from('employees').delete().eq('id', id);
@@ -368,7 +382,7 @@ export default function Home() {
     show('ลบพนักงานแล้ว'); load();
   }
 
-  // ── Order actions ─────────────────────────────────────────────────────────
+  // ── Order actions ──────────────────────────────────────────────────────────
   async function changeStatus(o: Order, newStatus: string) {
     setError('');
     const res = await supabase.from('orders')
@@ -381,9 +395,7 @@ export default function Home() {
   }
 
   async function recordPayment(e: React.FormEvent) {
-    e.preventDefault();
-    if (!payingOrder) return;
-    setError('');
+    e.preventDefault(); if (!payingOrder) return; setError('');
     const amount = Number(payForm.amount);
     if (!amount || amount <= 0) { setError('กรุณาระบุจำนวนเงินที่รับ'); return; }
     const p = await supabase.from('payments').insert({
@@ -403,21 +415,20 @@ export default function Home() {
         note: `รับเงิน ${fmtMoney(amount)} บาท ครบ`,
       });
     }
-    setPayingOrder(null);
-    setPayForm({ amount:'', method:'เงินสด' });
+    setPayingOrder(null); setPayForm({ amount:'', method:'เงินสด' });
     show('บันทึกรับเงินแล้ว'); load();
   }
 
-  // ── Tabs ──────────────────────────────────────────────────────────────────
+  // ── Tabs ───────────────────────────────────────────────────────────────────
   const TABS = [
     ['dashboard','Dashboard'], ['new-order','เปิดงานใหม่'],
-    ['orders','งานทั้งหมด'],   ['customers','ลูกค้า'], ['employees','พนักงาน'],
+    ['orders','งานทั้งหมด'],   ['customers','ลูกค้า'],
+    ['employees','พนักงาน'],   ['analytics','วิเคราะห์'],
   ];
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <main className="container">
-      {/* Header */}
       <div className="top">
         <div>
           <div className="brand">Idea Inkjet Cloud V2</div>
@@ -429,7 +440,6 @@ export default function Home() {
       {message && <div className="notice">{message}</div>}
       {error   && <div className="notice error">{error}</div>}
 
-      {/* Tab bar */}
       <div className="tabs">
         {TABS.map(t => (
           <button key={t[0]} onClick={() => setTab(t[0])} className={`tab${tab === t[0] ? ' active' : ''}`}>
@@ -439,7 +449,7 @@ export default function Home() {
         ))}
       </div>
 
-      {/* ═══ DASHBOARD ═══════════════════════════════════════════════════════ */}
+      {/* ═══ DASHBOARD ════════════════════════════════════════════════════════ */}
       {tab === 'dashboard' && (
         <section>
           <div className="grid">
@@ -450,22 +460,33 @@ export default function Home() {
             <Stat label="ค้างส่ง"     value={stats.overdue}    danger />
             <Stat label="ค้างชำระ"    value={stats.unpaid}     danger />
           </div>
-
           <div className="statsRow">
             <div className="card statWide">
               <div className="sub">ยอดรวมงานทั้งหมด</div>
-              <b style={{ fontSize: 28 }}>{fmtMoney(stats.sales)} บาท</b>
+              <b style={{ fontSize:28 }}>{fmtMoney(stats.sales)} บาท</b>
             </div>
             <div className="card statWide">
               <div className="sub">เก็บแล้ว</div>
-              <b style={{ fontSize: 28, color:'#16a34a' }}>{fmtMoney(stats.collected)} บาท</b>
+              <b style={{ fontSize:28, color:'#16a34a' }}>{fmtMoney(stats.collected)} บาท</b>
             </div>
             <div className="card statWide">
               <div className="sub">ยังค้างชำระ</div>
-              <b style={{ fontSize: 28, color: stats.outstanding > 0 ? '#dc2626' : undefined }}>
+              <b style={{ fontSize:28, color: stats.outstanding > 0 ? '#dc2626' : undefined }}>
                 {fmtMoney(stats.outstanding)} บาท
               </b>
             </div>
+          </div>
+
+          {monthlyData.length > 0 && (
+            <div className="card" style={{ marginTop:12 }}>
+              <h3 style={{ margin:'0 0 12px' }}>รายรับรายเดือน (6 เดือนล่าสุด)</h3>
+              <BarChart data={monthlyData.map(([m, v]) => [m, v.revenue])} />
+            </div>
+          )}
+
+          <div className="card" style={{ marginTop:12 }}>
+            <h3 style={{ margin:'0 0 10px' }}>สัดส่วนสถานะงานทั้งหมด</h3>
+            <StatusDistribution orders={orders} />
           </div>
 
           {todayOrders.length > 0 && (
@@ -474,7 +495,6 @@ export default function Home() {
               <MiniTable orders={todayOrders} />
             </div>
           )}
-
           <div className="card" style={{ marginTop:12 }}>
             <h3 style={{ margin:'0 0 8px' }}>งานล่าสุด</h3>
             <MiniTable orders={orders.slice(0,10)} />
@@ -482,25 +502,23 @@ export default function Home() {
         </section>
       )}
 
-      {/* ═══ NEW ORDER ═══════════════════════════════════════════════════════ */}
+      {/* ═══ NEW ORDER ════════════════════════════════════════════════════════ */}
       {tab === 'new-order' && (
         <section className="card">
           <h2>เปิดงานใหม่</h2>
-          <OrderForm
-            form={orderForm} setForm={setOrderForm}
+          <OrderForm form={orderForm} setForm={setOrderForm}
             customers={customers} employees={employees}
-            onSubmit={addOrder} submitLabel="บันทึกเปิดงาน"
-          />
+            onSubmit={addOrder} submitLabel="บันทึกเปิดงาน" />
         </section>
       )}
 
-      {/* ═══ ORDERS ══════════════════════════════════════════════════════════ */}
+      {/* ═══ ORDERS ═══════════════════════════════════════════════════════════ */}
       {tab === 'orders' && (
         <section className="card">
           <div className="tableHeader">
             <h2 style={{ margin:0 }}>งานทั้งหมด ({filtered.length})</h2>
             <div className="filters">
-              <input type="search" className="searchInput" placeholder="ค้นหาชื่องาน, ลูกค้า..."
+              <input type="search" className="searchInput" placeholder="ค้นหาชื่องาน, ลูกค้า, เลขงาน..."
                 value={search} onChange={e => setSearch(e.target.value)} />
               <select className="filterSelect" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
                 <option value="">ทุกสถานะ</option>
@@ -509,7 +527,15 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Quick filter chips */}
+          <div className="dateFilterRow">
+            <label>จาก<input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></label>
+            <label>ถึง<input type="date" value={dateTo}   onChange={e => setDateTo(e.target.value)} /></label>
+            {(dateFrom || dateTo) && (
+              <button className="btnSm btn2" onClick={() => { setDateFrom(''); setDateTo(''); }}>ล้าง</button>
+            )}
+            <button className="btnSm btnGreen exportBtn" onClick={exportCSV}>⬇ Export CSV</button>
+          </div>
+
           <div className="quickFilters">
             {([
               ['',           'ทั้งหมด'],
@@ -530,19 +556,22 @@ export default function Home() {
               <tbody>
                 {filtered.map(o => {
                   const isOverdue  = !!o.due_date && new Date(o.due_date) < new Date() && !['ชำระเงินแล้ว','ยกเลิก'].includes(o.status);
+                  const isToday    = o.due_date === today && !['ชำระเงินแล้ว','ยกเลิก'].includes(o.status);
                   const isExpanded = expandedId === o.id;
                   return (
                     <Fragment key={o.id}>
                       <tr className={isExpanded ? 'rowExpanded' : undefined}>
                         <td>
-                          <button className="codeBtn" onClick={() => setExpandedId(isExpanded ? null : o.id)}>
-                            {orderCode(o)}
-                          </button>
+                          <button className="codeBtn" onClick={() => {
+                            const next = isExpanded ? null : o.id;
+                            setExpandedId(next);
+                            if (next) loadOrderLogs(next);
+                          }}>{orderCode(o)}</button>
                         </td>
                         <td>{o.customers?.name || '-'}</td>
                         <td>{o.title}</td>
                         <td><StatusPill status={o.status} /></td>
-                        <td className={isOverdue ? 'overdue' : undefined}>{o.due_date || '-'}</td>
+                        <td className={isOverdue ? 'overdue' : isToday ? 'dueToday' : undefined}>{o.due_date || '-'}</td>
                         <td>{fmtMoney(o.price)}</td>
                         <td className={Number(o.balance) > 0 ? 'unpaid' : undefined}>{fmtMoney(o.balance)}</td>
                         <td>
@@ -552,11 +581,10 @@ export default function Home() {
                             </select>
                             {Number(o.balance) > 0 && (
                               <button className="btnGreen" onClick={() => {
-                                setPayingOrder(o);
-                                setPayForm({ amount: String(o.balance), method:'เงินสด' });
+                                setPayingOrder(o); setPayForm({ amount: String(o.balance), method:'เงินสด' });
                               }}>รับเงิน</button>
                             )}
-                            <button className="btn2" onClick={() => openEditOrder(o)}>แก้ไข</button>
+                            <button className="btn2"    onClick={() => openEditOrder(o)}>แก้ไข</button>
                             <button className="btnPrint" onClick={() => setPrintOrder(o)}>พิมพ์</button>
                           </div>
                         </td>
@@ -574,6 +602,7 @@ export default function Home() {
                               <span><b>ผลิตโดย:</b> {o.production?.name || '-'}</span>
                               {o.detail && <span className="detailFull"><b>หมายเหตุ:</b> {o.detail}</span>}
                             </div>
+                            <LogTimeline logs={orderLogs} loading={logsLoading} logsFor={logsFor} orderId={o.id} />
                           </td>
                         </tr>
                       )}
@@ -589,7 +618,7 @@ export default function Home() {
         </section>
       )}
 
-      {/* ═══ CUSTOMERS ═══════════════════════════════════════════════════════ */}
+      {/* ═══ CUSTOMERS ════════════════════════════════════════════════════════ */}
       {tab === 'customers' && (
         <section className="two">
           <div className="card">
@@ -606,14 +635,21 @@ export default function Home() {
             <h2>รายชื่อลูกค้า ({customers.length})</h2>
             <div className="listBox">
               {customers.map(c => {
-                const cnt = orders.filter(o => o.customer_id === c.id).length;
+                const custOrders = orders.filter(o => o.customer_id === c.id);
+                const cnt    = custOrders.length;
+                const total  = custOrders.reduce((s, o) => s + Number(o.price || 0), 0);
+                const unpaid = custOrders.reduce((s, o) => s + Number(o.balance || 0), 0);
                 return (
                   <div key={c.id} className="listRow">
                     <div>
                       <b>{c.name}</b>
                       <span className="sub"> {c.phone || '-'}</span>
                       {c.line_id && <span className="sub"> | Line: {c.line_id}</span>}
-                      <span className="countBadge">{cnt} งาน</span>
+                      <div style={{ marginTop:3 }}>
+                        <span className="countBadge">{cnt} งาน</span>
+                        {total > 0 && <span className="countBadge greenBadge">{fmtMoney(total)} บาท</span>}
+                        {unpaid > 0 && <span className="countBadge redBadge">ค้าง {fmtMoney(unpaid)}</span>}
+                      </div>
                     </div>
                     <div className="rowActions">
                       <button className="btn2 btnSm" onClick={() => openEditCustomer(c)}>แก้ไข</button>
@@ -628,7 +664,7 @@ export default function Home() {
         </section>
       )}
 
-      {/* ═══ EMPLOYEES ═══════════════════════════════════════════════════════ */}
+      {/* ═══ EMPLOYEES ════════════════════════════════════════════════════════ */}
       {tab === 'employees' && (
         <section className="two">
           <div className="card">
@@ -651,17 +687,22 @@ export default function Home() {
             <h2>พนักงาน ({employees.length})</h2>
             <div className="listBox">
               {employees.map(emp => {
-                const cnt = orders.filter(o => o.designer_id === emp.id || o.production_id === emp.id).length;
+                const asDes = orders.filter(o => o.designer_id   === emp.id).length;
+                const asPro = orders.filter(o => o.production_id === emp.id).length;
                 return (
                   <div key={emp.id} className="listRow">
                     <div>
                       <b>{emp.name}</b>
                       <span className="sub"> {emp.position || '-'} | {emp.role}</span>
-                      <span className="countBadge">{cnt} งาน</span>
+                      <div style={{ marginTop:3 }}>
+                        <span className="countBadge">{asDes + asPro} งาน</span>
+                        {asDes > 0 && <span className="countBadge" style={{ background:'#fef9c3', color:'#854d0e' }}>ออกแบบ {asDes}</span>}
+                        {asPro > 0 && <span className="countBadge" style={{ background:'#fae8ff', color:'#7e22ce' }}>ผลิต {asPro}</span>}
+                      </div>
                     </div>
                     <div className="rowActions">
                       <button className="btn2 btnSm" onClick={() => openEditEmployee(emp)}>แก้ไข</button>
-                      {cnt === 0 && <button className="btnRed btnSm" onClick={() => deleteEmployee(emp.id)}>ลบ</button>}
+                      {(asDes + asPro) === 0 && <button className="btnRed btnSm" onClick={() => deleteEmployee(emp.id)}>ลบ</button>}
                     </div>
                   </div>
                 );
@@ -672,20 +713,76 @@ export default function Home() {
         </section>
       )}
 
-      {/* ═══ MODALS ══════════════════════════════════════════════════════════ */}
+      {/* ═══ ANALYTICS ════════════════════════════════════════════════════════ */}
+      {tab === 'analytics' && (
+        <section>
+          <div className="analyticsGrid">
+            <div className="card">
+              <h3 className="chartTitle">รายรับรายเดือน (บาท)</h3>
+              {monthlyData.length > 0
+                ? <BarChart data={monthlyData.map(([m,v]) => [m, v.revenue])} color="#3b82f6" />
+                : <p className="sub">ยังไม่มีข้อมูล — สร้างงานก่อนครับ</p>}
+            </div>
+            <div className="card">
+              <h3 className="chartTitle">จำนวนงานรายเดือน</h3>
+              {monthlyData.length > 0
+                ? <BarChart data={monthlyData.map(([m,v]) => [m, v.count])} color="#8b5cf6" unit="งาน" />
+                : <p className="sub">ยังไม่มีข้อมูล</p>}
+            </div>
+          </div>
 
-      {/* Edit Order */}
+          <div className="card" style={{ marginTop:12 }}>
+            <h3 className="chartTitle">การกระจายสถานะงาน ({orders.length} งาน)</h3>
+            <StatusDistribution orders={orders} />
+          </div>
+
+          <div className="card" style={{ marginTop:12 }}>
+            <h3 className="chartTitle">ลูกค้าที่สั่งซื้อมากที่สุด (Top 10)</h3>
+            {topCustomers.length > 0 ? (
+              <div className="mobileTable" style={{ marginTop:8 }}>
+                <table>
+                  <thead>
+                    <tr><th>#</th><th>ลูกค้า</th><th>จำนวนงาน</th><th>ยอดรวม</th><th>ค้างชำระ</th></tr>
+                  </thead>
+                  <tbody>
+                    {topCustomers.map((c, i) => (
+                      <tr key={c.name + i}>
+                        <td><b style={{ color: i === 0 ? '#f59e0b' : i < 3 ? '#6b7280' : undefined }}>{i+1}</b></td>
+                        <td><b>{c.name}</b></td>
+                        <td>{c.count} งาน</td>
+                        <td><b style={{ color:'#16a34a' }}>{fmtMoney(c.total)} บาท</b></td>
+                        <td>{c.unpaid > 0 ? <span style={{ color:'#dc2626', fontWeight:600 }}>{fmtMoney(c.unpaid)} บาท</span> : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <p className="sub">ยังไม่มีข้อมูล</p>}
+          </div>
+
+          <div className="card" style={{ marginTop:12 }}>
+            <h3 className="chartTitle">สรุปยอดรวม</h3>
+            <div className="summaryGrid">
+              <SummaryCard label="งานทั้งหมด"       value={`${stats.total} งาน`} />
+              <SummaryCard label="ยอดขายรวม"        value={`${fmtMoney(stats.sales)} บาท`} color="#1d4ed8" />
+              <SummaryCard label="เก็บเงินได้แล้ว"  value={`${fmtMoney(stats.collected)} บาท`} color="#16a34a" />
+              <SummaryCard label="ยังค้างชำระ"       value={`${fmtMoney(stats.outstanding)} บาท`} color={stats.outstanding > 0 ? '#dc2626' : undefined} />
+              <SummaryCard label="อัตราเก็บเงิน"    value={stats.sales > 0 ? `${Math.round(stats.collected/stats.sales*100)}%` : '-'} color="#16a34a" />
+              <SummaryCard label="งานค้างส่ง"        value={`${stats.overdue} งาน`} color={stats.overdue > 0 ? '#dc2626' : undefined} />
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ═══ MODALS ════════════════════════════════════════════════════════════ */}
       {editingOrder && (
         <Modal title={`แก้ไขงาน — ${orderCode(editingOrder)}`} onClose={() => setEditingOrder(null)}>
-          <OrderForm
-            form={editForm} setForm={setEditForm}
+          <OrderForm form={editForm} setForm={setEditForm}
             customers={customers} employees={employees}
-            onSubmit={updateOrder} submitLabel="บันทึกแก้ไข"
-          />
+            onSubmit={updateOrder} submitLabel="บันทึกแก้ไข" />
         </Modal>
       )}
 
-      {/* Payment */}
       {payingOrder && (
         <Modal title="บันทึกรับเงิน" onClose={() => setPayingOrder(null)}>
           <div className="payInfo">
@@ -715,7 +812,6 @@ export default function Home() {
         </Modal>
       )}
 
-      {/* Edit Customer */}
       {editCust && (
         <Modal title="แก้ไขลูกค้า" onClose={() => setEditCust(null)}>
           <form className="form" onSubmit={updateCustomer}>
@@ -728,7 +824,6 @@ export default function Home() {
         </Modal>
       )}
 
-      {/* Edit Employee */}
       {editEmp && (
         <Modal title="แก้ไขพนักงาน" onClose={() => setEditEmp(null)}>
           <form className="form" onSubmit={updateEmployee}>
@@ -747,15 +842,12 @@ export default function Home() {
         </Modal>
       )}
 
-      {/* Print Slip */}
       {printOrder && (
         <Modal title="ใบรับงาน" onClose={() => setPrintOrder(null)}>
-          <div className="printContent">
-            <PrintSlip order={printOrder} />
-          </div>
+          <div className="printContent"><PrintSlip order={printOrder} /></div>
           <div className="printActions">
             <button className="btnGreen" onClick={() => window.print()}>พิมพ์ / Save PDF</button>
-            <button className="btn2"     onClick={() => setPrintOrder(null)}>ปิด</button>
+            <button className="btn2" onClick={() => setPrintOrder(null)}>ปิด</button>
           </div>
         </Modal>
       )}
@@ -763,16 +855,12 @@ export default function Home() {
   );
 }
 
-// ─── Reusable OrderForm (shared by new-order and edit-order) ──────────────────
+// ─── OrderForm ────────────────────────────────────────────────────────────────
 type OrderFormProps = {
-  form: typeof EMPTY_ORDER;
-  setForm: (f: typeof EMPTY_ORDER) => void;
-  customers: Customer[];
-  employees: Employee[];
-  onSubmit: (e: React.FormEvent) => void;
-  submitLabel: string;
+  form: typeof EMPTY_ORDER; setForm: (f: typeof EMPTY_ORDER) => void;
+  customers: Customer[]; employees: Employee[];
+  onSubmit: (e: React.FormEvent) => void; submitLabel: string;
 };
-
 function OrderForm({ form, setForm, customers, employees, onSubmit, submitLabel }: OrderFormProps) {
   const balance = Number(form.price || 0) - Number(form.deposit || 0);
   return (
@@ -783,34 +871,17 @@ function OrderForm({ form, setForm, customers, employees, onSubmit, submitLabel 
           {customers.map(c => <option key={c.id} value={c.id}>{c.name} — {c.phone || 'ไม่มีเบอร์'}</option>)}
         </select>
       </Field>
-      <Field label="ชื่องาน" full>
-        <input required value={form.title} onChange={e => setForm({...form, title:e.target.value})} />
-      </Field>
-      <Field label="ประเภทงาน">
-        <input value={form.order_type} onChange={e => setForm({...form, order_type:e.target.value})} />
-      </Field>
-      <Field label="วันนัดส่ง">
-        <input type="date" value={form.due_date} onChange={e => setForm({...form, due_date:e.target.value})} />
-      </Field>
-      <Field label="ขนาด">
-        <input value={form.size} onChange={e => setForm({...form, size:e.target.value})} placeholder="เช่น 120x240 ซม." />
-      </Field>
-      <Field label="จำนวน">
-        <input type="number" min="1" value={form.quantity} onChange={e => setForm({...form, quantity:e.target.value})} />
-      </Field>
-      <Field label="วัสดุ" full>
-        <input value={form.material} onChange={e => setForm({...form, material:e.target.value})} />
-      </Field>
-      <Field label="ราคา (บาท)">
-        <input type="number" min="0" value={form.price} onChange={e => setForm({...form, price:e.target.value})} />
-      </Field>
-      <Field label="มัดจำ (บาท)">
-        <input type="number" min="0" value={form.deposit} onChange={e => setForm({...form, deposit:e.target.value})} />
-      </Field>
+      <Field label="ชื่องาน" full><input required value={form.title} onChange={e => setForm({...form, title:e.target.value})} /></Field>
+      <Field label="ประเภทงาน"><input value={form.order_type} onChange={e => setForm({...form, order_type:e.target.value})} /></Field>
+      <Field label="วันนัดส่ง"><input type="date" value={form.due_date} onChange={e => setForm({...form, due_date:e.target.value})} /></Field>
+      <Field label="ขนาด"><input value={form.size} onChange={e => setForm({...form, size:e.target.value})} placeholder="เช่น 120x240 ซม." /></Field>
+      <Field label="จำนวน"><input type="number" min="1" value={form.quantity} onChange={e => setForm({...form, quantity:e.target.value})} /></Field>
+      <Field label="วัสดุ" full><input value={form.material} onChange={e => setForm({...form, material:e.target.value})} /></Field>
+      <Field label="ราคา (บาท)"><input type="number" min="0" value={form.price} onChange={e => setForm({...form, price:e.target.value})} /></Field>
+      <Field label="มัดจำ (บาท)"><input type="number" min="0" value={form.deposit} onChange={e => setForm({...form, deposit:e.target.value})} /></Field>
       {Number(form.price) > 0 && (
         <div className={`balancePreview full${balance < 0 ? ' balanceWarn' : ''}`}>
-          ยอดค้างชำระ: <b>{fmtMoney(balance)} บาท</b>
-          {balance < 0 && ' (มัดจำเกินราคา)'}
+          ยอดค้างชำระ: <b>{fmtMoney(balance)} บาท</b>{balance < 0 && ' (มัดจำเกินราคา)'}
         </div>
       )}
       <Field label="คนออกแบบ">
@@ -833,8 +904,7 @@ function OrderForm({ form, setForm, customers, employees, onSubmit, submitLabel 
   );
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
+// ─── Shared sub-components ────────────────────────────────────────────────────
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="modalOverlay" onClick={onClose}>
@@ -848,7 +918,6 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
     </div>
   );
 }
-
 function Stat({ label, value, accent, danger }: { label: string; value: number; accent?: boolean; danger?: boolean }) {
   return (
     <div className="card stat">
@@ -857,16 +926,13 @@ function Stat({ label, value, accent, danger }: { label: string; value: number; 
     </div>
   );
 }
-
 function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
   return <label className={full ? 'full' : undefined}>{label}{children}</label>;
 }
-
 function StatusPill({ status }: { status: string }) {
   const [bg, color] = STATUS_STYLE[status] || ['#e5e7eb','#374151'];
   return <span className="pill" style={{ background: bg, color }}>{status}</span>;
 }
-
 function MiniTable({ orders }: { orders: Order[] }) {
   if (!orders.length) return <p className="sub" style={{ marginTop:8 }}>ไม่มีข้อมูล</p>;
   return (
@@ -888,7 +954,100 @@ function MiniTable({ orders }: { orders: Order[] }) {
     </div>
   );
 }
+function SummaryCard({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div className="summaryCard">
+      <div className="sub">{label}</div>
+      <b style={{ color }}>{value}</b>
+    </div>
+  );
+}
 
+// ─── BarChart (pure SVG) ──────────────────────────────────────────────────────
+const TH_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+function BarChart({ data, color = '#3b82f6', unit = 'บาท' }: { data: [string, number][]; color?: string; unit?: string }) {
+  if (!data.length) return null;
+  const max = Math.max(...data.map(d => d[1]), 1);
+  const BAR_W = 54, GAP = 10, H = 110;
+  const totalW = data.length * (BAR_W + GAP) - GAP;
+  return (
+    <div style={{ overflowX:'auto', paddingBottom:4 }}>
+      <svg width={totalW} height={H + 50} style={{ display:'block', minWidth:'100%' }}>
+        {data.map(([label, val], i) => {
+          const x    = i * (BAR_W + GAP);
+          const barH = Math.max(4, Math.round((val / max) * H));
+          const y    = H - barH;
+          const [yr, mo] = label.split('-');
+          const thMo = TH_MONTHS[Number(mo) - 1] ?? mo;
+          const disp = val >= 1000000 ? `${(val/1e6).toFixed(1)}M`
+                     : val >= 1000    ? `${(val/1000).toFixed(1)}K`
+                     : String(val);
+          return (
+            <g key={label}>
+              <rect x={x} y={y} width={BAR_W} height={barH} fill={color} rx={4} opacity={0.85} />
+              <text x={x + BAR_W/2} y={H + 16} textAnchor="middle" fontSize={11} fill="#6b7280">{thMo}</text>
+              <text x={x + BAR_W/2} y={H + 30} textAnchor="middle" fontSize={10} fill="#9ca3af">{yr.slice(2)}</text>
+              <text x={x + BAR_W/2} y={Math.max(y - 5, 12)} textAnchor="middle" fontSize={10} fill="#374151">{disp}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// ─── Status distribution bar ──────────────────────────────────────────────────
+function StatusDistribution({ orders }: { orders: Order[] }) {
+  const total  = orders.length || 1;
+  const counts = STATUSES.map(s => ({ s, n: orders.filter(o => o.status === s).length })).filter(x => x.n > 0);
+  return (
+    <div>
+      <div style={{ display:'flex', height:26, borderRadius:8, overflow:'hidden', gap:2 }}>
+        {counts.map(({ s, n }) => {
+          const [bg] = STATUS_STYLE[s] || ['#e5e7eb',''];
+          return <div key={s} style={{ flex:n/total, background:bg, minWidth:6 }} title={`${s}: ${n}`} />;
+        })}
+      </div>
+      <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:10 }}>
+        {counts.map(({ s, n }) => {
+          const [bg, color] = STATUS_STYLE[s] || ['#e5e7eb','#374151'];
+          return (
+            <span key={s} style={{ background:bg, color, fontSize:12, padding:'3px 10px', borderRadius:20, whiteSpace:'nowrap' }}>
+              {s} <b>{n}</b>
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Order status timeline ────────────────────────────────────────────────────
+function LogTimeline({ logs, loading, logsFor, orderId }: { logs: StatusLog[]; loading: boolean; logsFor: number|null; orderId: number }) {
+  if (loading && logsFor === orderId) return <div className="logLine sub">กำลังโหลดประวัติ...</div>;
+  if (logsFor !== orderId || !logs.length) return null;
+  return (
+    <div className="logTimeline">
+      <div className="logLabel">ประวัติการเปลี่ยนสถานะ</div>
+      {logs.map(l => (
+        <div key={l.id} className="logEntry">
+          <span className="logDot" />
+          <div className="logBody">
+            <span className="logStatus">
+              {l.old_status ? <>{l.old_status} → </> : null}<b>{l.new_status}</b>
+            </span>
+            {l.note && <span className="logNote">{l.note}</span>}
+            <span className="logTime">
+              {new Date(l.created_at).toLocaleString('th-TH', { dateStyle:'short', timeStyle:'short' })}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── PrintSlip ────────────────────────────────────────────────────────────────
 function PrintSlip({ order }: { order: Order }) {
   const code = orderCode(order);
   return (
@@ -898,21 +1057,16 @@ function PrintSlip({ order }: { order: Order }) {
         <div className="slipDocType">ใบรับงาน / Work Order</div>
         <div className="slipCode">{code}</div>
       </div>
-
       <div className="slipSection">
         <div className="slipRow"><span>วันนัดส่ง</span><b>{fmtDate(order.due_date)}</b></div>
         <div className="slipRow"><span>สถานะ</span><b>{order.status}</b></div>
       </div>
-
       <div className="slipSection">
         <div className="slipSectionTitle">ข้อมูลลูกค้า</div>
         <div className="slipRow"><span>ชื่อ</span><b>{order.customers?.name || '-'}</b></div>
         <div className="slipRow"><span>โทร</span><b>{order.customers?.phone || '-'}</b></div>
         {order.customers?.line_id && <div className="slipRow"><span>Line</span><b>{order.customers.line_id}</b></div>}
-        {order.customers?.contact_channel && order.customers.contact_channel !== 'LINE' &&
-          <div className="slipRow"><span>ช่องทาง</span><b>{order.customers.contact_channel}</b></div>}
       </div>
-
       <div className="slipSection">
         <div className="slipSectionTitle">รายละเอียดงาน</div>
         <div className="slipRow"><span>ชื่องาน</span><b>{order.title}</b></div>
@@ -924,19 +1078,16 @@ function PrintSlip({ order }: { order: Order }) {
         {order.production && <div className="slipRow"><span>ผลิต</span><b>{order.production.name}</b></div>}
         {order.detail     && <div className="slipNote">{order.detail}</div>}
       </div>
-
       <div className="slipSection slipPriceSection">
         <div className="slipSectionTitle">ราคา</div>
         <div className="slipRow"><span>ราคารวม</span><b>{fmtMoney(order.price)} บาท</b></div>
         <div className="slipRow"><span>มัดจำ</span><b>{fmtMoney(order.deposit)} บาท</b></div>
         <div className="slipRow slipBalance"><span>ยอดค้างชำระ</span><b>{fmtMoney(order.balance)} บาท</b></div>
       </div>
-
       <div className="slipSignRow">
         <div className="slipSign"><div className="signLine" /><span>ลายเซ็นลูกค้า</span></div>
         <div className="slipSign"><div className="signLine" /><span>ลายเซ็นพนักงาน</span></div>
       </div>
-
       <div className="slipFooter">พิมพ์วันที่ {new Date().toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' })}</div>
     </div>
   );
