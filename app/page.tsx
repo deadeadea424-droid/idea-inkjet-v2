@@ -103,6 +103,9 @@ export default function Home() {
   const [message, setMessage]     = useState('');
   const [error, setError]         = useState('');
   const [loading, setLoading]     = useState(false);
+  const [initialized, setInitialized] = useState(false);
+  const [role, setRole]           = useState<'owner' | 'employee' | null>(null);
+  const [selectedEmpId, setSelectedEmpId] = useState<number | null>(null);
 
   const [custForm, setCustForm]   = useState({ name:'', phone:'', line_id:'', contact_channel:'LINE' });
   const [empForm,  setEmpForm]    = useState({ name:'', position:'', role:'graphic' });
@@ -137,7 +140,7 @@ export default function Home() {
       supabase.from('employees').select('*').order('id', { ascending: false }),
       supabase.from('orders').select('*').order('id', { ascending: false }),
     ]);
-    setLoading(false);
+    setLoading(false); setInitialized(true);
     if (c.error || e.error || o.error) {
       setError(c.error?.message || e.error?.message || o.error?.message || 'โหลดข้อมูลไม่สำเร็จ'); return;
     }
@@ -171,6 +174,22 @@ export default function Home() {
     setCustomers(custNorm); setEmployees(empNorm); setOrders(ordNorm);
   }
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    const r = localStorage.getItem('iij_role') as 'owner' | 'employee' | null;
+    const e = localStorage.getItem('iij_emp');
+    if (r) setRole(r);
+    if (e) setSelectedEmpId(Number(e));
+  }, []);
+
+  function doLogin(r: 'owner' | 'employee', empId?: number) {
+    setRole(r); localStorage.setItem('iij_role', r);
+    if (empId !== undefined) { setSelectedEmpId(empId); localStorage.setItem('iij_emp', String(empId)); }
+  }
+  function doLogout() {
+    setRole(null); setSelectedEmpId(null);
+    localStorage.removeItem('iij_role'); localStorage.removeItem('iij_emp');
+  }
 
   async function loadOrderLogs(orderId: number) {
     setLogsLoading(true); setLogsFor(orderId);
@@ -419,6 +438,38 @@ export default function Home() {
     show('บันทึกรับเงินแล้ว'); load();
   }
 
+  // ── Role gates ────────────────────────────────────────────────────────────
+  if (!initialized) return (
+    <main className="container" style={{ minHeight:'100vh', display:'flex', flexDirection:'column', justifyContent:'center', alignItems:'center', gap:8 }}>
+      <div className="brand">Idea Inkjet</div>
+      <div className="sub">กำลังโหลดระบบ...</div>
+    </main>
+  );
+
+  if (!role) return <RoleSelectScreen employees={employees} onSelect={doLogin} />;
+
+  if (role === 'employee') {
+    const emp = employees.find(e => e.id === selectedEmpId);
+    if (!emp) return (
+      <main className="container">
+        <div className="card" style={{ maxWidth:360, margin:'80px auto', padding:28, textAlign:'center' }}>
+          <p>ไม่พบข้อมูลพนักงาน กรุณาเลือกใหม่</p>
+          <button onClick={doLogout}>กลับหน้าเลือกผู้ใช้</button>
+        </div>
+      </main>
+    );
+    return (
+      <EmployeeView
+        emp={emp}
+        orders={orders.filter(o => o.designer_id === emp.id || o.production_id === emp.id)}
+        message={message} error={error} loading={loading}
+        onLogout={doLogout} onLoad={load} onChangeStatus={changeStatus}
+        onLoadLogs={loadOrderLogs} orderLogs={orderLogs}
+        logsLoading={logsLoading} logsFor={logsFor} today={today}
+      />
+    );
+  }
+
   // ── Tabs ───────────────────────────────────────────────────────────────────
   const TABS = [
     ['dashboard','Dashboard'], ['new-order','เปิดงานใหม่'],
@@ -434,7 +485,10 @@ export default function Home() {
           <div className="brand">Idea Inkjet Cloud V2</div>
           <div className="sub">ระบบรับงาน + ติดตามสถานะงาน + Supabase Cloud</div>
         </div>
-        <button onClick={load} disabled={loading}>{loading ? 'กำลังโหลด...' : 'รีเฟรช'}</button>
+        <div style={{ display:'flex', gap:8 }}>
+          <button onClick={load} disabled={loading}>{loading ? 'กำลังโหลด...' : 'รีเฟรช'}</button>
+          <button className="btn2 btnSm" onClick={doLogout}>เปลี่ยนผู้ใช้</button>
+        </div>
       </div>
 
       {message && <div className="notice">{message}</div>}
@@ -1090,5 +1144,192 @@ function PrintSlip({ order }: { order: Order }) {
       </div>
       <div className="slipFooter">พิมพ์วันที่ {new Date().toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' })}</div>
     </div>
+  );
+}
+
+// ─── Role Selection Screen ────────────────────────────────────────────────────
+function RoleSelectScreen({ employees, onSelect }: {
+  employees: Employee[];
+  onSelect: (role: 'owner' | 'employee', empId?: number) => void;
+}) {
+  const [empId, setEmpId] = useState('');
+  return (
+    <main className="container" style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <div style={{ width:'100%', maxWidth:400 }}>
+        <div className="card" style={{ padding:'40px 32px', textAlign:'center' }}>
+          <div className="brand" style={{ fontSize:28, marginBottom:4 }}>Idea Inkjet</div>
+          <div className="sub" style={{ marginBottom:32 }}>ระบบจัดการงานพิมพ์</div>
+
+          <button
+            onClick={() => onSelect('owner')}
+            style={{ width:'100%', padding:'18px 16px', marginBottom:8, fontSize:15, borderRadius:12, textAlign:'left', display:'flex', flexDirection:'column', gap:4 }}
+          >
+            <span style={{ fontSize:20 }}>🏪 เจ้าของร้าน</span>
+            <span style={{ fontSize:12, fontWeight:400, opacity:.85 }}>ดูภาพรวมทั้งหมด จัดการระบบ</span>
+          </button>
+
+          <div style={{ borderTop:'1px solid var(--line)', margin:'20px 0 16px' }} />
+          <p style={{ fontSize:13, color:'var(--muted)', margin:'0 0 10px' }}>หรือเข้าในฐานะพนักงาน</p>
+          <select value={empId} onChange={e => setEmpId(e.target.value)} style={{ width:'100%', marginBottom:10 }}>
+            <option value="">เลือกชื่อพนักงาน...</option>
+            {employees.map(e => (
+              <option key={e.id} value={e.id}>{e.name}{e.position ? ` — ${e.position}` : ''}</option>
+            ))}
+          </select>
+          <button
+            className="btnGreen"
+            style={{ width:'100%', opacity: empId ? 1 : .5 }}
+            disabled={!empId}
+            onClick={() => empId && onSelect('employee', Number(empId))}
+          >
+            👷 เข้าสู่ระบบพนักงาน
+          </button>
+          {employees.length === 0 && (
+            <p style={{ fontSize:12, color:'var(--muted)', marginTop:12 }}>
+              ยังไม่มีพนักงานในระบบ เจ้าของร้านต้องเพิ่มพนักงานก่อน
+            </p>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+// ─── Employee View ────────────────────────────────────────────────────────────
+type EmpViewProps = {
+  emp: Employee; orders: Order[];
+  message: string; error: string; loading: boolean;
+  onLogout: () => void; onLoad: () => void;
+  onChangeStatus: (o: Order, s: string) => void;
+  onLoadLogs: (id: number) => void;
+  orderLogs: StatusLog[]; logsLoading: boolean; logsFor: number | null;
+  today: string;
+};
+function EmployeeView({ emp, orders, message, error, loading, onLogout, onLoad, onChangeStatus, onLoadLogs, orderLogs, logsLoading, logsFor, today }: EmpViewProps) {
+  const [filter, setFilter]       = useState<'active' | 'all' | 'done'>('active');
+  const [expandedId, setExpanded] = useState<number | null>(null);
+
+  const DONE   = ['ชำระเงินแล้ว','ยกเลิก'];
+  const active = orders.filter(o => !DONE.includes(o.status));
+  const done   = orders.filter(o =>  DONE.includes(o.status));
+  const dueToday = active.filter(o => o.due_date === today).length;
+  const overdue  = active.filter(o => o.due_date && new Date(o.due_date) < new Date() && o.due_date !== today).length;
+  const displayed = filter === 'active' ? active : filter === 'done' ? done : orders;
+
+  return (
+    <main className="container">
+      <div className="top">
+        <div>
+          <div className="brand" style={{ fontSize:20 }}>สวัสดี, {emp.name}</div>
+          <div className="sub">{emp.position || emp.role} · Idea Inkjet</div>
+        </div>
+        <div style={{ display:'flex', gap:8 }}>
+          <button onClick={onLoad} disabled={loading} className="btnSm btn2">{loading ? 'โหลด...' : 'รีเฟรช'}</button>
+          <button className="btnSm btn2" onClick={onLogout}>ออกจากระบบ</button>
+        </div>
+      </div>
+
+      {message && <div className="notice">{message}</div>}
+      {error   && <div className="notice error">{error}</div>}
+
+      {/* Summary row */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:14 }}>
+        {([
+          ['งานทั้งหมด', orders.length, undefined],
+          ['กำลังทำ',    active.length, '#1d4ed8'],
+          ['วันนี้',     dueToday,      dueToday > 0 ? '#c2410c' : undefined],
+          ['เลยกำหนด',  overdue,       overdue  > 0 ? '#dc2626' : undefined],
+        ] as [string, number, string|undefined][]).map(([label, val, color]) => (
+          <div key={label} className="card stat" style={{ padding:'12px 14px' }}>
+            <span className="sub" style={{ fontSize:11 }}>{label}</span>
+            <b style={{ color, fontSize:22 }}>{val}</b>
+          </div>
+        ))}
+      </div>
+
+      {/* Filter tabs */}
+      <div className="tabs" style={{ marginBottom:14 }}>
+        <button className={`tab${filter==='active'?' active':''}`} onClick={() => setFilter('active')}>
+          ต้องทำ {active.length > 0 && <span className="badge">{active.length}</span>}
+        </button>
+        <button className={`tab${filter==='all'?' active':''}`} onClick={() => setFilter('all')}>
+          ทั้งหมด ({orders.length})
+        </button>
+        <button className={`tab${filter==='done'?' active':''}`} onClick={() => setFilter('done')}>
+          เสร็จแล้ว ({done.length})
+        </button>
+      </div>
+
+      {/* Job cards */}
+      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+        {displayed.length === 0 && (
+          <div className="card" style={{ textAlign:'center', padding:36, color:'var(--muted)' }}>
+            {filter === 'active' ? 'ไม่มีงานที่ต้องทำ 🎉' : 'ยังไม่มีงาน'}
+          </div>
+        )}
+        {displayed.map(o => {
+          const isDes      = o.designer_id   === emp.id;
+          const isPro      = o.production_id === emp.id;
+          const isOverdue  = !!o.due_date && new Date(o.due_date) < new Date() && !DONE.includes(o.status);
+          const isToday    = o.due_date === today && !DONE.includes(o.status);
+          const isExpanded = expandedId === o.id;
+          return (
+            <div key={o.id} className="card" style={{ padding:'14px 16px' }}>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:6, alignItems:'center' }}>
+                <span style={{ fontWeight:700, color:'var(--brand)', fontSize:13 }}>
+                  {o.order_code || `JOB-${String(o.id).padStart(4,'0')}`}
+                </span>
+                <StatusPill status={o.status} />
+                {isDes && <span className="countBadge" style={{ background:'#fef9c3', color:'#854d0e' }}>ออกแบบ</span>}
+                {isPro && <span className="countBadge" style={{ background:'#fae8ff', color:'#7e22ce' }}>ผลิต</span>}
+              </div>
+              <div style={{ fontWeight:700, fontSize:15, marginBottom:2 }}>{o.title}</div>
+              <div style={{ fontSize:13, color:'var(--muted)' }}>
+                ลูกค้า: {o.customers?.name || '-'}
+                {o.due_date && (
+                  <span className={isOverdue ? ' overdue' : isToday ? ' dueToday' : ''} style={{ marginLeft:12 }}>
+                    นัดส่ง: {fmtDate(o.due_date)}{isOverdue ? ' ⚠️' : isToday ? ' 🔔' : ''}
+                  </span>
+                )}
+              </div>
+              {(o.size || o.quantity) && (
+                <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
+                  {o.size ? `ขนาด: ${o.size}` : ''}{o.size && o.quantity ? ' · ' : ''}{o.quantity ? `${o.quantity} ชิ้น` : ''}
+                </div>
+              )}
+
+              {!DONE.includes(o.status) && (
+                <div style={{ marginTop:10, display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+                  <span style={{ fontSize:12, color:'var(--muted)', whiteSpace:'nowrap' }}>เปลี่ยนสถานะ:</span>
+                  <select value={o.status} onChange={ev => onChangeStatus(o, ev.target.value)} style={{ flex:1, minWidth:160 }}>
+                    {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+              )}
+
+              <div style={{ marginTop:8 }}>
+                <button className="codeBtn" style={{ fontSize:12 }} onClick={() => {
+                  const next = isExpanded ? null : o.id;
+                  setExpanded(next);
+                  if (next) onLoadLogs(next);
+                }}>
+                  {isExpanded ? '▲ ซ่อน' : '▼ รายละเอียด'}
+                </button>
+                {isExpanded && (
+                  <div style={{ marginTop:8, borderTop:'1px solid var(--line)', paddingTop:8 }}>
+                    {o.detail && <p style={{ fontSize:13, margin:'0 0 6px' }}><b>หมายเหตุ:</b> {o.detail}</p>}
+                    <div className="orderDetail" style={{ marginBottom:8 }}>
+                      {o.order_type && <span><b>ประเภท:</b> {o.order_type}</span>}
+                      {o.material   && <span><b>วัสดุ:</b> {o.material}</span>}
+                    </div>
+                    <LogTimeline logs={orderLogs} loading={logsLoading} logsFor={logsFor} orderId={o.id} />
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </main>
   );
 }
