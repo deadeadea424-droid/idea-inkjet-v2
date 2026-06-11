@@ -103,16 +103,30 @@ export default function Home() {
     if (c.error || e.error || o.error) {
       setError(c.error?.message || e.error?.message || o.error?.message || 'โหลดข้อมูลไม่สำเร็จ'); return;
     }
-    const custMap = Object.fromEntries((c.data || []).map(x => [x.id, x]));
-    const empMap  = Object.fromEntries((e.data || []).map(x => [x.id, x]));
-    const enriched = (o.data || []).map(row => ({
+    // Normalize column names — DB may use employee_name / customer_name
+    const custNorm: Customer[] = (c.data || []).map((x: any) => ({
+      id: x.id,
+      name: x.name ?? x.customer_name ?? '',
+      phone: x.phone ?? '',
+      line_id: x.line_id ?? '',
+      contact_channel: x.contact_channel ?? 'LINE',
+    }));
+    const empNorm: Employee[] = (e.data || []).map((x: any) => ({
+      id: x.id,
+      name: x.name ?? x.employee_name ?? '',
+      position: x.position ?? '',
+      role: x.role ?? 'graphic',
+    }));
+    const custMap = Object.fromEntries(custNorm.map(x => [x.id, x]));
+    const empMap  = Object.fromEntries(empNorm.map(x => [x.id, x]));
+    const enriched = (o.data || []).map((row: any) => ({
       ...row,
       customers:  custMap[row.customer_id]   ?? undefined,
       designer:   empMap[row.designer_id]    ?? undefined,
       production: empMap[row.production_id]  ?? undefined,
     }));
-    setCustomers(c.data || []);
-    setEmployees(e.data || []);
+    setCustomers(custNorm);
+    setEmployees(empNorm);
     setOrders(enriched);
   }
   useEffect(() => { load(); }, []);
@@ -162,15 +176,28 @@ export default function Home() {
   // ── Create ────────────────────────────────────────────────────────────────
   async function addCustomer(e: React.FormEvent) {
     e.preventDefault(); setError('');
-    const res = await supabase.from('customers').insert(custForm);
-    if (res.error) { setError(res.error.message); return; }
+    const res = await supabase.from('customers').insert({
+      customer_name: custForm.name,
+      phone: custForm.phone,
+      line_id: custForm.line_id,
+      contact_channel: custForm.contact_channel,
+    });
+    if (res.error) {
+      // Fallback: DB might use 'name' column instead
+      const res2 = await supabase.from('customers').insert(custForm);
+      if (res2.error) { setError(res2.error.message); return; }
+    }
     setCustForm({ name:'', phone:'', line_id:'', contact_channel:'LINE' });
     show('เพิ่มลูกค้าแล้ว'); load();
   }
 
   async function addEmployee(e: React.FormEvent) {
     e.preventDefault(); setError('');
-    const res = await supabase.from('employees').insert(empForm);
+    const res = await supabase.from('employees').insert({
+      employee_name: empForm.name,
+      position: empForm.position,
+      role: empForm.role,
+    });
     if (res.error) { setError(res.error.message); return; }
     setEmpForm({ name:'', position:'', role:'graphic' });
     show('เพิ่มพนักงานแล้ว'); load();
@@ -261,7 +288,18 @@ export default function Home() {
     e.preventDefault();
     if (!editCust) return;
     setError('');
-    const res = await supabase.from('customers').update(editCustForm).eq('id', editCust.id);
+    const res = await supabase.from('customers').update({
+      customer_name: editCustForm.name,
+      phone: editCustForm.phone,
+      line_id: editCustForm.line_id,
+      contact_channel: editCustForm.contact_channel,
+    }).eq('id', editCust.id);
+    if (res.error) {
+      // Fallback: DB might use 'name' column instead
+      const res2 = await supabase.from('customers').update(editCustForm).eq('id', editCust.id);
+      if (res2.error) { setError(res2.error.message); return; }
+      setEditCust(null); show('แก้ไขลูกค้าแล้ว'); load(); return;
+    }
     if (res.error) { setError(res.error.message); return; }
     setEditCust(null);
     show('แก้ไขลูกค้าแล้ว'); load();
@@ -276,7 +314,11 @@ export default function Home() {
     e.preventDefault();
     if (!editEmp) return;
     setError('');
-    const res = await supabase.from('employees').update(editEmpForm).eq('id', editEmp.id);
+    const res = await supabase.from('employees').update({
+      employee_name: editEmpForm.name,
+      position: editEmpForm.position,
+      role: editEmpForm.role,
+    }).eq('id', editEmp.id);
     if (res.error) { setError(res.error.message); return; }
     setEditEmp(null);
     show('แก้ไขพนักงานแล้ว'); load();
