@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Customer  = { id: number; name: string; phone: string; line_id: string; contact_channel: string };
-type Employee  = { id: number; name: string; position: string; role: string };
+type Employee  = { id: number; name: string; position: string; role: string; pin?: string | null };
 type StatusLog = { id: number; order_id: number; old_status: string; new_status: string; note: string; created_at: string };
 type Order = {
   id: number; order_code: string; title: string; status: string;
@@ -94,6 +94,16 @@ async function dbUpdate(table: string, id: number, data: Record<string, any>) {
   return res;
 }
 
+// ─── PIN helpers (localStorage-based, with best-effort DB sync) ───────────────
+function savePin(empId: number, pin: string) {
+  const pins = JSON.parse(localStorage.getItem('iij_pins') || '{}');
+  if (pin) pins[String(empId)] = pin; else delete pins[String(empId)];
+  localStorage.setItem('iij_pins', JSON.stringify(pins));
+  supabase.from('employees').update({ pin: pin || null }).eq('id', empId); // fire-and-forget
+}
+const getOwnerPin = () => localStorage.getItem('iij_owner_pin') || '';
+const setOwnerPin = (p: string) => p ? localStorage.setItem('iij_owner_pin', p) : localStorage.removeItem('iij_owner_pin');
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Home() {
   const [tab, setTab]             = useState('dashboard');
@@ -104,11 +114,12 @@ export default function Home() {
   const [error, setError]         = useState('');
   const [loading, setLoading]     = useState(false);
   const [initialized, setInitialized] = useState(false);
-  const [role, setRole]           = useState<'owner' | 'employee' | null>(null);
+  const [role, setRole]           = useState<'owner' | 'employee' | 'viewer' | null>(null);
   const [selectedEmpId, setSelectedEmpId] = useState<number | null>(null);
+  const [editMode, setEditMode]   = useState(false);
 
   const [custForm, setCustForm]   = useState({ name:'', phone:'', line_id:'', contact_channel:'LINE' });
-  const [empForm,  setEmpForm]    = useState({ name:'', position:'', role:'graphic' });
+  const [empForm,  setEmpForm]    = useState({ name:'', position:'', role:'graphic', pin:'' });
   const [orderForm, setOrderForm] = useState(EMPTY_ORDER);
 
   const [search,       setSearch]       = useState('');
@@ -130,7 +141,7 @@ export default function Home() {
   const [editCust,     setEditCust]     = useState<Customer | null>(null);
   const [editCustForm, setEditCustForm] = useState({ name:'', phone:'', line_id:'', contact_channel:'' });
   const [editEmp,      setEditEmp]      = useState<Employee | null>(null);
-  const [editEmpForm,  setEditEmpForm]  = useState({ name:'', position:'', role:'graphic' });
+  const [editEmpForm,  setEditEmpForm]  = useState({ name:'', position:'', role:'graphic', pin:'' });
 
   // ── Load ────────────────────────────────────────────────────────────────────
   async function load() {
@@ -148,9 +159,11 @@ export default function Home() {
       id: x.id, name: x.name ?? x.customer_name ?? '',
       phone: x.phone ?? '', line_id: x.line_id ?? '', contact_channel: x.contact_channel ?? 'LINE',
     }));
+    const localPins: Record<string, string> = JSON.parse(localStorage.getItem('iij_pins') || '{}');
     const empNorm: Employee[] = (e.data || []).map((x: any) => ({
       id: x.id, name: x.name ?? x.employee_name ?? '',
       position: x.position ?? '', role: x.role ?? 'graphic',
+      pin: (x.pin != null ? String(x.pin) : null) ?? localPins[String(x.id)] ?? null,
     }));
     const custMap = Object.fromEntries(custNorm.map(x => [x.id, x]));
     const empMap  = Object.fromEntries(empNorm.map(x => [x.id, x]));
@@ -176,19 +189,23 @@ export default function Home() {
   useEffect(() => { load(); }, []);
 
   useEffect(() => {
-    const r = localStorage.getItem('iij_role') as 'owner' | 'employee' | null;
+    const r = localStorage.getItem('iij_role') as 'owner' | 'employee' | 'viewer' | null;
     const e = localStorage.getItem('iij_emp');
+    const em = localStorage.getItem('iij_edit');
     if (r) setRole(r);
     if (e) setSelectedEmpId(Number(e));
+    if (em) setEditMode(em === '1');
   }, []);
 
-  function doLogin(r: 'owner' | 'employee', empId?: number) {
-    setRole(r); localStorage.setItem('iij_role', r);
+  function doLogin(r: 'owner' | 'employee' | 'viewer', empId?: number, edit?: boolean) {
+    setRole(r); setEditMode(!!edit);
+    localStorage.setItem('iij_role', r);
+    localStorage.setItem('iij_edit', edit ? '1' : '0');
     if (empId !== undefined) { setSelectedEmpId(empId); localStorage.setItem('iij_emp', String(empId)); }
   }
   function doLogout() {
-    setRole(null); setSelectedEmpId(null);
-    localStorage.removeItem('iij_role'); localStorage.removeItem('iij_emp');
+    setRole(null); setSelectedEmpId(null); setEditMode(false);
+    localStorage.removeItem('iij_role'); localStorage.removeItem('iij_emp'); localStorage.removeItem('iij_edit');
   }
 
   async function loadOrderLogs(orderId: number) {
@@ -300,7 +317,8 @@ export default function Home() {
       name: empForm.name, position: empForm.position, role: empForm.role,
     });
     if (res.error) { setError(res.error.message); return; }
-    setEmpForm({ name:'', position:'', role:'graphic' });
+    if (empForm.pin && res.data?.id) savePin(res.data.id, empForm.pin);
+    setEmpForm({ name:'', position:'', role:'graphic', pin:'' });
     show('เพิ่มพนักงานแล้ว'); load();
   }
 
@@ -378,12 +396,14 @@ export default function Home() {
 
   function openEditEmployee(emp: Employee) {
     setEditEmp(emp);
-    setEditEmpForm({ name: emp.name, position: emp.position || '', role: emp.role || 'graphic' });
+    setEditEmpForm({ name: emp.name, position: emp.position || '', role: emp.role || 'graphic', pin: emp.pin || '' });
   }
   async function updateEmployee(e: React.FormEvent) {
     e.preventDefault(); if (!editEmp) return; setError('');
-    const res = await dbUpdate('employees', editEmp.id, editEmpForm);
+    const { pin, ...rest } = editEmpForm;
+    const res = await dbUpdate('employees', editEmp.id, rest);
     if (res.error) { setError(res.error.message); return; }
+    savePin(editEmp.id, pin);
     setEditEmp(null); show('แก้ไขพนักงานแล้ว'); load();
   }
 
@@ -446,7 +466,12 @@ export default function Home() {
     </main>
   );
 
-  if (!role) return <RoleSelectScreen employees={employees} onSelect={doLogin} />;
+  if (!role) return <RoleSelectScreen employees={employees} ownerPin={getOwnerPin()} onSelect={doLogin} />;
+
+  if (role === 'viewer') return (
+    <ViewerBoard orders={orders} employees={employees} message={message} error={error}
+      loading={loading} onLogout={doLogout} onLoad={load} today={today} />
+  );
 
   if (role === 'employee') {
     const emp = employees.find(e => e.id === selectedEmpId);
@@ -462,7 +487,7 @@ export default function Home() {
       <EmployeeView
         emp={emp}
         orders={orders.filter(o => o.designer_id === emp.id || o.production_id === emp.id)}
-        message={message} error={error} loading={loading}
+        message={message} error={error} loading={loading} editMode={editMode}
         onLogout={doLogout} onLoad={load} onChangeStatus={changeStatus}
         onLoadLogs={loadOrderLogs} orderLogs={orderLogs}
         logsLoading={logsLoading} logsFor={logsFor} today={today}
@@ -720,50 +745,60 @@ export default function Home() {
 
       {/* ═══ EMPLOYEES ════════════════════════════════════════════════════════ */}
       {tab === 'employees' && (
-        <section className="two">
-          <div className="card">
-            <h2>เพิ่มพนักงาน</h2>
-            <form className="form" onSubmit={addEmployee}>
-              <Field label="ชื่อ" full><input required value={empForm.name} onChange={e => setEmpForm({...empForm, name:e.target.value})} /></Field>
-              <Field label="ตำแหน่ง" full><input value={empForm.position} onChange={e => setEmpForm({...empForm, position:e.target.value})} /></Field>
-              <Field label="สิทธิ์" full>
-                <select value={empForm.role} onChange={e => setEmpForm({...empForm, role:e.target.value})}>
-                  <option value="owner">เจ้าของร้าน</option>
-                  <option value="admin">แอดมิน</option>
-                  <option value="graphic">กราฟิก</option>
-                  <option value="production">ช่างผลิต</option>
-                </select>
-              </Field>
-              <button type="submit" className="full">บันทึกพนักงาน</button>
-            </form>
-          </div>
-          <div className="card">
-            <h2>พนักงาน ({employees.length})</h2>
-            <div className="listBox">
-              {employees.map(emp => {
-                const asDes = orders.filter(o => o.designer_id   === emp.id).length;
-                const asPro = orders.filter(o => o.production_id === emp.id).length;
-                return (
-                  <div key={emp.id} className="listRow">
-                    <div>
-                      <b>{emp.name}</b>
-                      <span className="sub"> {emp.position || '-'} | {emp.role}</span>
-                      <div style={{ marginTop:3 }}>
-                        <span className="countBadge">{asDes + asPro} งาน</span>
-                        {asDes > 0 && <span className="countBadge" style={{ background:'#fef9c3', color:'#854d0e' }}>ออกแบบ {asDes}</span>}
-                        {asPro > 0 && <span className="countBadge" style={{ background:'#fae8ff', color:'#7e22ce' }}>ผลิต {asPro}</span>}
+        <section>
+          <div className="two" style={{ marginBottom:14 }}>
+            <div className="card">
+              <h2>เพิ่มพนักงาน</h2>
+              <form className="form" onSubmit={addEmployee}>
+                <Field label="ชื่อ" full><input required value={empForm.name} onChange={e => setEmpForm({...empForm, name:e.target.value})} /></Field>
+                <Field label="ตำแหน่ง" full><input value={empForm.position} onChange={e => setEmpForm({...empForm, position:e.target.value})} /></Field>
+                <Field label="สิทธิ์" full>
+                  <select value={empForm.role} onChange={e => setEmpForm({...empForm, role:e.target.value})}>
+                    <option value="owner">เจ้าของร้าน</option>
+                    <option value="admin">แอดมิน</option>
+                    <option value="graphic">กราฟิก</option>
+                    <option value="production">ช่างผลิต</option>
+                  </select>
+                </Field>
+                <Field label="รหัสเข้าใช้งาน" full>
+                  <input type="password" placeholder="ตั้งรหัส 4–8 ตัว (ไม่บังคับ)"
+                    value={empForm.pin} onChange={e => setEmpForm({...empForm, pin:e.target.value})} />
+                </Field>
+                <button type="submit" className="full">บันทึกพนักงาน</button>
+              </form>
+            </div>
+            <div className="card">
+              <h2>พนักงาน ({employees.length})</h2>
+              <div className="listBox">
+                {employees.map(emp => {
+                  const asDes = orders.filter(o => o.designer_id   === emp.id).length;
+                  const asPro = orders.filter(o => o.production_id === emp.id).length;
+                  return (
+                    <div key={emp.id} className="listRow">
+                      <div>
+                        <b>{emp.name}</b>
+                        <span className="sub"> {emp.position || '-'} | {emp.role}</span>
+                        {emp.pin
+                          ? <span className="countBadge" style={{ background:'#dcfce7', color:'#166534' }}>🔒 มีรหัส</span>
+                          : <span className="countBadge" style={{ background:'#fee2e2', color:'#991b1b' }}>🔓 ยังไม่มีรหัส</span>}
+                        <div style={{ marginTop:3 }}>
+                          <span className="countBadge">{asDes + asPro} งาน</span>
+                          {asDes > 0 && <span className="countBadge" style={{ background:'#fef9c3', color:'#854d0e' }}>ออกแบบ {asDes}</span>}
+                          {asPro > 0 && <span className="countBadge" style={{ background:'#fae8ff', color:'#7e22ce' }}>ผลิต {asPro}</span>}
+                        </div>
+                      </div>
+                      <div className="rowActions">
+                        <button className="btn2 btnSm" onClick={() => openEditEmployee(emp)}>แก้ไข/รหัส</button>
+                        {(asDes + asPro) === 0 && <button className="btnRed btnSm" onClick={() => deleteEmployee(emp.id)}>ลบ</button>}
                       </div>
                     </div>
-                    <div className="rowActions">
-                      <button className="btn2 btnSm" onClick={() => openEditEmployee(emp)}>แก้ไข</button>
-                      {(asDes + asPro) === 0 && <button className="btnRed btnSm" onClick={() => deleteEmployee(emp.id)}>ลบ</button>}
-                    </div>
-                  </div>
-                );
-              })}
-              {employees.length === 0 && <p className="sub">ยังไม่มีพนักงาน</p>}
+                  );
+                })}
+                {employees.length === 0 && <p className="sub">ยังไม่มีพนักงาน</p>}
+              </div>
             </div>
           </div>
+          <OwnerPinManager />
         </section>
       )}
 
@@ -879,7 +914,7 @@ export default function Home() {
       )}
 
       {editEmp && (
-        <Modal title="แก้ไขพนักงาน" onClose={() => setEditEmp(null)}>
+        <Modal title={`แก้ไขพนักงาน — ${editEmp.name}`} onClose={() => setEditEmp(null)}>
           <form className="form" onSubmit={updateEmployee}>
             <Field label="ชื่อ" full><input required value={editEmpForm.name} onChange={e => setEditEmpForm({...editEmpForm, name:e.target.value})} /></Field>
             <Field label="ตำแหน่ง" full><input value={editEmpForm.position} onChange={e => setEditEmpForm({...editEmpForm, position:e.target.value})} /></Field>
@@ -890,6 +925,10 @@ export default function Home() {
                 <option value="graphic">กราฟิก</option>
                 <option value="production">ช่างผลิต</option>
               </select>
+            </Field>
+            <Field label="รหัสเข้าใช้งาน (เว้นว่างเพื่อลบรหัส)" full>
+              <input type="password" placeholder="ตั้ง / เปลี่ยน / ลบรหัส"
+                value={editEmpForm.pin} onChange={e => setEditEmpForm({...editEmpForm, pin:e.target.value})} />
             </Field>
             <button type="submit" className="full">บันทึกแก้ไข</button>
           </form>
@@ -1148,56 +1187,138 @@ function PrintSlip({ order }: { order: Order }) {
 }
 
 // ─── Role Selection Screen ────────────────────────────────────────────────────
-function RoleSelectScreen({ employees, onSelect }: {
+function RoleSelectScreen({ employees, ownerPin, onSelect }: {
   employees: Employee[];
-  onSelect: (role: 'owner' | 'employee', empId?: number) => void;
+  ownerPin: string;
+  onSelect: (role: 'owner' | 'employee' | 'viewer', empId?: number, edit?: boolean) => void;
 }) {
-  const [empId, setEmpId] = useState('');
+  const [ownerInput, setOwnerInput] = useState('');
+  const [empId,      setEmpId]      = useState('');
+  const [empInput,   setEmpInput]   = useState('');
+  const [loginErr,   setLoginErr]   = useState('');
+
+  function handleOwner() {
+    if (ownerPin && ownerInput !== ownerPin) { setLoginErr('รหัสเจ้าของร้านไม่ถูกต้อง'); return; }
+    onSelect('owner');
+  }
+
+  function handleEmp() {
+    const emp = employees.find(e => String(e.id) === empId);
+    if (!emp) return;
+    setLoginErr('');
+    if (!emp.pin) {
+      // No PIN set — allow login in view-only mode
+      onSelect('employee', emp.id, false);
+      return;
+    }
+    if (empInput === emp.pin) {
+      onSelect('employee', emp.id, true);
+    } else {
+      setLoginErr('รหัสไม่ถูกต้อง');
+    }
+  }
+
+  const selEmp = employees.find(e => String(e.id) === empId);
+  const empNeedsPin = !!selEmp?.pin;
+
   return (
-    <main className="container" style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center' }}>
-      <div style={{ width:'100%', maxWidth:400 }}>
-        <div className="card" style={{ padding:'40px 32px', textAlign:'center' }}>
-          <div className="brand" style={{ fontSize:28, marginBottom:4 }}>Idea Inkjet</div>
-          <div className="sub" style={{ marginBottom:32 }}>ระบบจัดการงานพิมพ์</div>
+    <main className="container" style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', padding:'20px 16px' }}>
+      <div style={{ width:'100%', maxWidth:420 }}>
+        <div style={{ textAlign:'center', marginBottom:24 }}>
+          <div className="brand" style={{ fontSize:28 }}>Idea Inkjet</div>
+          <div className="sub">ระบบจัดการงานพิมพ์</div>
+        </div>
 
-          <button
-            onClick={() => onSelect('owner')}
-            style={{ width:'100%', padding:'18px 16px', marginBottom:8, fontSize:15, borderRadius:12, textAlign:'left', display:'flex', flexDirection:'column', gap:4 }}
-          >
-            <span style={{ fontSize:20 }}>🏪 เจ้าของร้าน</span>
-            <span style={{ fontSize:12, fontWeight:400, opacity:.85 }}>ดูภาพรวมทั้งหมด จัดการระบบ</span>
-          </button>
+        {loginErr && <div className="notice error" style={{ textAlign:'center', marginBottom:12 }}>{loginErr}</div>}
 
-          <div style={{ borderTop:'1px solid var(--line)', margin:'20px 0 16px' }} />
-          <p style={{ fontSize:13, color:'var(--muted)', margin:'0 0 10px' }}>หรือเข้าในฐานะพนักงาน</p>
-          <select value={empId} onChange={e => setEmpId(e.target.value)} style={{ width:'100%', marginBottom:10 }}>
+        {/* ── Owner ── */}
+        <div className="card" style={{ padding:'20px 24px', marginBottom:12 }}>
+          <div style={{ fontWeight:700, marginBottom:12 }}>🏪 เจ้าของร้าน</div>
+          {ownerPin ? (
+            <div style={{ display:'flex', gap:8 }}>
+              <input type="password" placeholder="รหัสเจ้าของร้าน"
+                value={ownerInput} onChange={e => { setOwnerInput(e.target.value); setLoginErr(''); }}
+                onKeyDown={e => e.key === 'Enter' && handleOwner()}
+                style={{ flex:1 }} />
+              <button onClick={handleOwner} style={{ width:90 }}>เข้าสู่ระบบ</button>
+            </div>
+          ) : (
+            <button style={{ width:'100%' }} onClick={handleOwner}>เข้าสู่ระบบเจ้าของร้าน</button>
+          )}
+          <div className="sub" style={{ marginTop:6 }}>ดูภาพรวมทั้งหมด จัดการระบบ</div>
+        </div>
+
+        {/* ── Employee ── */}
+        <div className="card" style={{ padding:'20px 24px', marginBottom:12 }}>
+          <div style={{ fontWeight:700, marginBottom:12 }}>👷 พนักงาน</div>
+          <select value={empId} onChange={e => { setEmpId(e.target.value); setEmpInput(''); setLoginErr(''); }}
+            style={{ width:'100%', marginBottom:10 }}>
             <option value="">เลือกชื่อพนักงาน...</option>
             {employees.map(e => (
               <option key={e.id} value={e.id}>{e.name}{e.position ? ` — ${e.position}` : ''}</option>
             ))}
           </select>
-          <button
-            className="btnGreen"
-            style={{ width:'100%', opacity: empId ? 1 : .5 }}
-            disabled={!empId}
-            onClick={() => empId && onSelect('employee', Number(empId))}
-          >
-            👷 เข้าสู่ระบบพนักงาน
-          </button>
-          {employees.length === 0 && (
-            <p style={{ fontSize:12, color:'var(--muted)', marginTop:12 }}>
-              ยังไม่มีพนักงานในระบบ เจ้าของร้านต้องเพิ่มพนักงานก่อน
-            </p>
+          {empId && (
+            empNeedsPin ? (
+              <div style={{ display:'flex', gap:8, marginBottom:10 }}>
+                <input type="password" placeholder="ใส่รหัสของคุณ" autoFocus
+                  value={empInput} onChange={e => { setEmpInput(e.target.value); setLoginErr(''); }}
+                  onKeyDown={e => e.key === 'Enter' && handleEmp()}
+                  style={{ flex:1 }} />
+                <button className="btnGreen" onClick={handleEmp} style={{ width:90 }}>เข้าสู่ระบบ</button>
+              </div>
+            ) : (
+              <div style={{ marginBottom:10 }}>
+                <div className="notice" style={{ margin:'0 0 8px', fontSize:13 }}>ยังไม่มีรหัส — เข้าได้แต่แก้ไขไม่ได้</div>
+                <button className="btnGreen" style={{ width:'100%' }} onClick={handleEmp}>เข้าสู่ระบบ (ดูอย่างเดียว)</button>
+              </div>
+            )
           )}
+          {!empId && <div className="sub" style={{ fontSize:12 }}>ดูและแก้ไขงานของตัวเองได้เมื่อใส่รหัสถูก</div>}
         </div>
+
+        {/* ── Viewer ── */}
+        <button className="btn2" style={{ width:'100%' }} onClick={() => onSelect('viewer')}>
+          👁 ดูสถานะงานทั้งหมด (ไม่ต้องใส่รหัส)
+        </button>
+        <div className="sub" style={{ textAlign:'center', marginTop:6, fontSize:12 }}>ดูได้ทุกงาน แต่แก้ไขไม่ได้</div>
       </div>
     </main>
   );
 }
 
+// ─── Owner PIN Manager (shown inside employees tab) ───────────────────────────
+function OwnerPinManager() {
+  const [pin,    setPin]    = useState(getOwnerPin());
+  const [input,  setInput]  = useState('');
+  const [saved,  setSaved]  = useState(false);
+  function save() {
+    setOwnerPin(input.trim());
+    setPin(input.trim());
+    setInput('');
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+  return (
+    <div className="card" style={{ padding:'16px 20px' }}>
+      <h3 style={{ margin:'0 0 10px', fontSize:15 }}>🔑 รหัสเจ้าของร้าน</h3>
+      <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+        {pin
+          ? <span style={{ fontSize:13, color:'var(--muted)' }}>รหัสปัจจุบัน: <b>{'•'.repeat(pin.length)}</b> ({pin.length} ตัว)</span>
+          : <span style={{ fontSize:13, color:'var(--muted)' }}>ยังไม่มีรหัส — ทุกคนเข้าได้โดยไม่ต้องใส่รหัส</span>}
+        <input type="password" placeholder="ตั้ง/เปลี่ยนรหัส (เว้นว่างเพื่อลบ)"
+          value={input} onChange={e => setInput(e.target.value)}
+          style={{ flex:1, minWidth:180 }} />
+        <button className="btnGreen btnSm" onClick={save}>{saved ? 'บันทึกแล้ว ✓' : 'บันทึก'}</button>
+        {pin && <button className="btnRed btnSm" onClick={() => { setOwnerPin(''); setPin(''); }}>ลบรหัส</button>}
+      </div>
+    </div>
+  );
+}
+
 // ─── Employee View ────────────────────────────────────────────────────────────
 type EmpViewProps = {
-  emp: Employee; orders: Order[];
+  emp: Employee; orders: Order[]; editMode: boolean;
   message: string; error: string; loading: boolean;
   onLogout: () => void; onLoad: () => void;
   onChangeStatus: (o: Order, s: string) => void;
@@ -1205,7 +1326,7 @@ type EmpViewProps = {
   orderLogs: StatusLog[]; logsLoading: boolean; logsFor: number | null;
   today: string;
 };
-function EmployeeView({ emp, orders, message, error, loading, onLogout, onLoad, onChangeStatus, onLoadLogs, orderLogs, logsLoading, logsFor, today }: EmpViewProps) {
+function EmployeeView({ emp, orders, editMode, message, error, loading, onLogout, onLoad, onChangeStatus, onLoadLogs, orderLogs, logsLoading, logsFor, today }: EmpViewProps) {
   const [filter, setFilter]       = useState<'active' | 'all' | 'done'>('active');
   const [expandedId, setExpanded] = useState<number | null>(null);
 
@@ -1221,7 +1342,12 @@ function EmployeeView({ emp, orders, message, error, loading, onLogout, onLoad, 
       <div className="top">
         <div>
           <div className="brand" style={{ fontSize:20 }}>สวัสดี, {emp.name}</div>
-          <div className="sub">{emp.position || emp.role} · Idea Inkjet</div>
+          <div className="sub">
+            {emp.position || emp.role} · Idea Inkjet
+            {editMode
+              ? <span style={{ marginLeft:8, color:'#16a34a', fontWeight:600 }}>🔓 แก้ไขได้</span>
+              : <span style={{ marginLeft:8, color:'#6b7280' }}>👁 ดูอย่างเดียว</span>}
+          </div>
         </div>
         <div style={{ display:'flex', gap:8 }}>
           <button onClick={onLoad} disabled={loading} className="btnSm btn2">{loading ? 'โหลด...' : 'รีเฟรช'}</button>
@@ -1229,6 +1355,11 @@ function EmployeeView({ emp, orders, message, error, loading, onLogout, onLoad, 
         </div>
       </div>
 
+      {!editMode && (
+        <div className="notice" style={{ background:'#fffbeb', color:'#92400e', borderColor:'#fde68a', border:'1px solid', marginBottom:8 }}>
+          คุณเข้าในโหมดดูอย่างเดียว — ใส่รหัสที่ถูกต้องเพื่อแก้ไขสถานะงานได้
+        </div>
+      )}
       {message && <div className="notice">{message}</div>}
       {error   && <div className="notice error">{error}</div>}
 
@@ -1247,20 +1378,14 @@ function EmployeeView({ emp, orders, message, error, loading, onLogout, onLoad, 
         ))}
       </div>
 
-      {/* Filter tabs */}
       <div className="tabs" style={{ marginBottom:14 }}>
         <button className={`tab${filter==='active'?' active':''}`} onClick={() => setFilter('active')}>
           ต้องทำ {active.length > 0 && <span className="badge">{active.length}</span>}
         </button>
-        <button className={`tab${filter==='all'?' active':''}`} onClick={() => setFilter('all')}>
-          ทั้งหมด ({orders.length})
-        </button>
-        <button className={`tab${filter==='done'?' active':''}`} onClick={() => setFilter('done')}>
-          เสร็จแล้ว ({done.length})
-        </button>
+        <button className={`tab${filter==='all'?' active':''}`} onClick={() => setFilter('all')}>ทั้งหมด ({orders.length})</button>
+        <button className={`tab${filter==='done'?' active':''}`} onClick={() => setFilter('done')}>เสร็จแล้ว ({done.length})</button>
       </div>
 
-      {/* Job cards */}
       <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
         {displayed.length === 0 && (
           <div className="card" style={{ textAlign:'center', padding:36, color:'var(--muted)' }}>
@@ -1298,7 +1423,7 @@ function EmployeeView({ emp, orders, message, error, loading, onLogout, onLoad, 
                 </div>
               )}
 
-              {!DONE.includes(o.status) && (
+              {editMode && !DONE.includes(o.status) && (
                 <div style={{ marginTop:10, display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
                   <span style={{ fontSize:12, color:'var(--muted)', whiteSpace:'nowrap' }}>เปลี่ยนสถานะ:</span>
                   <select value={o.status} onChange={ev => onChangeStatus(o, ev.target.value)} style={{ flex:1, minWidth:160 }}>
@@ -1330,6 +1455,147 @@ function EmployeeView({ emp, orders, message, error, loading, onLogout, onLoad, 
           );
         })}
       </div>
+    </main>
+  );
+}
+
+// ─── Viewer Board (read-only, all orders) ─────────────────────────────────────
+type ViewerProps = {
+  orders: Order[]; employees: Employee[];
+  message: string; error: string; loading: boolean;
+  onLogout: () => void; onLoad: () => void; today: string;
+};
+function ViewerBoard({ orders, employees, message, error, loading, onLogout, onLoad, today }: ViewerProps) {
+  const [search, setSearch] = useState('');
+  const DONE = ['ชำระเงินแล้ว','ยกเลิก'];
+  const active = orders.filter(o => !DONE.includes(o.status));
+
+  const filtered = orders.filter(o => {
+    if (!search) return !DONE.includes(o.status);
+    const q = search.toLowerCase();
+    return o.title.toLowerCase().includes(q) ||
+           (o.customers?.name || '').toLowerCase().includes(q) ||
+           (o.order_code || '').toLowerCase().includes(q);
+  });
+
+  const byStatus: Record<string, Order[]> = {};
+  active.forEach(o => {
+    if (!byStatus[o.status]) byStatus[o.status] = [];
+    byStatus[o.status].push(o);
+  });
+
+  return (
+    <main className="container">
+      <div className="top">
+        <div>
+          <div className="brand" style={{ fontSize:20 }}>📋 สถานะงานทั้งหมด</div>
+          <div className="sub">Idea Inkjet · ดูอย่างเดียว</div>
+        </div>
+        <div style={{ display:'flex', gap:8 }}>
+          <button onClick={onLoad} disabled={loading} className="btnSm btn2">{loading ? 'โหลด...' : 'รีเฟรช'}</button>
+          <button className="btnSm btn2" onClick={onLogout}>เปลี่ยนผู้ใช้</button>
+        </div>
+      </div>
+
+      {message && <div className="notice">{message}</div>}
+      {error   && <div className="notice error">{error}</div>}
+
+      {/* Quick stats */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:14 }}>
+        <div className="card stat" style={{ padding:'12px 14px' }}>
+          <span className="sub" style={{ fontSize:11 }}>งานที่ดำเนินการอยู่</span>
+          <b style={{ fontSize:22, color:'#1d4ed8' }}>{active.length}</b>
+        </div>
+        <div className="card stat" style={{ padding:'12px 14px' }}>
+          <span className="sub" style={{ fontSize:11 }}>นัดส่งวันนี้</span>
+          <b style={{ fontSize:22, color: active.filter(o => o.due_date===today).length > 0 ? '#c2410c' : undefined }}>
+            {active.filter(o => o.due_date===today).length}
+          </b>
+        </div>
+        <div className="card stat" style={{ padding:'12px 14px' }}>
+          <span className="sub" style={{ fontSize:11 }}>เลยกำหนด</span>
+          <b style={{ fontSize:22, color:'#dc2626' }}>
+            {active.filter(o => o.due_date && new Date(o.due_date) < new Date()).length}
+          </b>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div style={{ marginBottom:14 }}>
+        <input type="search" className="searchInput" style={{ width:'100%' }}
+          placeholder="ค้นหางาน, ลูกค้า, เลขงาน..."
+          value={search} onChange={e => setSearch(e.target.value)} />
+      </div>
+
+      {search ? (
+        /* Search results */
+        <div className="card">
+          <h3 style={{ margin:'0 0 10px' }}>ผลการค้นหา ({filtered.length} งาน)</h3>
+          {filtered.length === 0
+            ? <p className="sub">ไม่พบงานที่ตรงกัน</p>
+            : filtered.map(o => {
+              const isOverdue = !!o.due_date && new Date(o.due_date) < new Date() && !DONE.includes(o.status);
+              const isToday   = o.due_date === today;
+              return (
+                <div key={o.id} style={{ display:'flex', gap:10, padding:'8px 0', borderBottom:'1px solid var(--line)', flexWrap:'wrap', alignItems:'center' }}>
+                  <span style={{ fontWeight:700, color:'var(--brand)', fontSize:13, minWidth:80 }}>
+                    {o.order_code || `JOB-${String(o.id).padStart(4,'0')}`}
+                  </span>
+                  <StatusPill status={o.status} />
+                  <span style={{ flex:1, fontSize:14 }}>{o.title}</span>
+                  <span style={{ fontSize:13, color:'var(--muted)' }}>{o.customers?.name || '-'}</span>
+                  {o.due_date && (
+                    <span style={{ fontSize:12 }} className={isOverdue ? 'overdue' : isToday ? 'dueToday' : ''}>
+                      {fmtDate(o.due_date)}
+                    </span>
+                  )}
+                </div>
+              );
+            })
+          }
+        </div>
+      ) : (
+        /* Status columns */
+        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          {STATUSES.filter(s => !DONE.includes(s) && byStatus[s]?.length).map(s => (
+            <div key={s} className="card">
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                <StatusPill status={s} />
+                <span style={{ fontWeight:700, fontSize:14 }}>{byStatus[s].length} งาน</span>
+              </div>
+              {byStatus[s].map(o => {
+                const isOverdue = !!o.due_date && new Date(o.due_date) < new Date();
+                const isToday   = o.due_date === today;
+                const des = employees.find(e => e.id === o.designer_id);
+                const pro = employees.find(e => e.id === o.production_id);
+                return (
+                  <div key={o.id} style={{ padding:'8px 0', borderBottom:'1px solid var(--line)', fontSize:13 }}>
+                    <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+                      <span style={{ fontWeight:700, color:'var(--brand)' }}>
+                        {o.order_code || `JOB-${String(o.id).padStart(4,'0')}`}
+                      </span>
+                      <span style={{ fontWeight:600 }}>{o.title}</span>
+                      <span style={{ color:'var(--muted)' }}>— {o.customers?.name || '-'}</span>
+                    </div>
+                    <div style={{ marginTop:3, display:'flex', gap:10, flexWrap:'wrap', color:'var(--muted)' }}>
+                      {o.due_date && (
+                        <span className={isOverdue ? 'overdue' : isToday ? 'dueToday' : ''}>
+                          📅 {fmtDate(o.due_date)}{isOverdue ? ' ⚠️' : isToday ? ' 🔔' : ''}
+                        </span>
+                      )}
+                      {des && <span>✏️ {des.name}</span>}
+                      {pro && <span>🔧 {pro.name}</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+          {active.length === 0 && (
+            <div className="card" style={{ textAlign:'center', padding:40, color:'var(--muted)' }}>ไม่มีงานที่กำลังดำเนินการ</div>
+          )}
+        </div>
+      )}
     </main>
   );
 }
