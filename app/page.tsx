@@ -97,17 +97,23 @@ export default function Home() {
     const [c, e, o] = await Promise.all([
       supabase.from('customers').select('*').order('id', { ascending: false }),
       supabase.from('employees').select('*').order('id', { ascending: false }),
-      supabase.from('orders')
-        .select('*, customers(*), designer:employees!orders_designer_id_fkey(*), production:employees!orders_production_id_fkey(*)')
-        .order('id', { ascending: false }),
+      supabase.from('orders').select('*').order('id', { ascending: false }),
     ]);
     setLoading(false);
     if (c.error || e.error || o.error) {
       setError(c.error?.message || e.error?.message || o.error?.message || 'โหลดข้อมูลไม่สำเร็จ'); return;
     }
+    const custMap = Object.fromEntries((c.data || []).map(x => [x.id, x]));
+    const empMap  = Object.fromEntries((e.data || []).map(x => [x.id, x]));
+    const enriched = (o.data || []).map(row => ({
+      ...row,
+      customers:  custMap[row.customer_id]   ?? undefined,
+      designer:   empMap[row.designer_id]    ?? undefined,
+      production: empMap[row.production_id]  ?? undefined,
+    }));
     setCustomers(c.data || []);
     setEmployees(e.data || []);
-    setOrders(o.data || []);
+    setOrders(enriched);
   }
   useEffect(() => { load(); }, []);
 
