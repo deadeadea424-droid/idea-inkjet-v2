@@ -94,15 +94,10 @@ async function dbUpdate(table: string, id: number, data: Record<string, any>) {
   return res;
 }
 
-// ─── PIN helpers (localStorage-based, with best-effort DB sync) ───────────────
-function savePin(empId: number, pin: string) {
-  const pins = JSON.parse(localStorage.getItem('iij_pins') || '{}');
-  if (pin) pins[String(empId)] = pin; else delete pins[String(empId)];
-  localStorage.setItem('iij_pins', JSON.stringify(pins));
-  supabase.from('employees').update({ pin: pin || null }).eq('id', empId); // fire-and-forget
+// ─── PIN helpers (DB-based) ──────────────────────────────────────────────────
+async function savePin(empId: number, pin: string) {
+  await supabase.from('employees').update({ pin: pin || null }).eq('id', empId);
 }
-const getOwnerPin = () => localStorage.getItem('iij_owner_pin') || '';
-const setOwnerPin = (p: string) => p ? localStorage.setItem('iij_owner_pin', p) : localStorage.removeItem('iij_owner_pin');
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Home() {
@@ -118,6 +113,8 @@ export default function Home() {
   const [selectedEmpId, setSelectedEmpId] = useState<number | null>(null);
   const [editMode, setEditMode]   = useState(false);
   const [viewAsEmp, setViewAsEmp] = useState<number | null>(null);
+  const [ownerPin, setOwnerPinState] = useState('');
+  const [settingsReady, setSettingsReady] = useState(true);
 
   const [custForm, setCustForm]   = useState({ name:'', phone:'', line_id:'', contact_channel:'LINE' });
   const [empForm,  setEmpForm]    = useState({ name:'', position:'', role:'graphic', pin:'' });
@@ -147,24 +144,43 @@ export default function Home() {
   // ── Load ────────────────────────────────────────────────────────────────────
   async function load() {
     setLoading(true); setError('');
-    const [c, e, o] = await Promise.all([
+    const [c, e, o, s] = await Promise.all([
       supabase.from('customers').select('*').order('id', { ascending: false }),
       supabase.from('employees').select('*').order('id', { ascending: false }),
       supabase.from('orders').select('*').order('id', { ascending: false }),
+      supabase.from('app_settings').select('value').eq('key', 'owner_pin').maybeSingle(),
     ]);
     setLoading(false); setInitialized(true);
     if (c.error || e.error || o.error) {
       setError(c.error?.message || e.error?.message || o.error?.message || 'โหลดข้อมูลไม่สำเร็จ'); return;
     }
+    // Load owner PIN from app_settings
+    if (!s.error) {
+      setSettingsReady(true);
+      let pin = s.data?.value || '';
+      if (!pin) {
+        const legacy = localStorage.getItem('iij_owner_pin');
+        if (legacy) {
+          await supabase.from('app_settings').upsert({ key: 'owner_pin', value: legacy });
+          localStorage.removeItem('iij_owner_pin');
+          pin = legacy;
+        }
+      }
+      setOwnerPinState(pin);
+    } else {
+      setSettingsReady(false);
+      setOwnerPinState(localStorage.getItem('iij_owner_pin') || '');
+    }
+    // Clean up old employee PIN cache from localStorage
+    localStorage.removeItem('iij_pins');
     const custNorm: Customer[] = (c.data || []).map((x: any) => ({
       id: x.id, name: x.name ?? x.customer_name ?? '',
       phone: x.phone ?? '', line_id: x.line_id ?? '', contact_channel: x.contact_channel ?? 'LINE',
     }));
-    const localPins: Record<string, string> = JSON.parse(localStorage.getItem('iij_pins') || '{}');
     const empNorm: Employee[] = (e.data || []).map((x: any) => ({
       id: x.id, name: x.name ?? x.employee_name ?? '',
       position: x.position ?? '', role: x.role ?? 'graphic',
-      pin: (x.pin != null ? String(x.pin) : null) ?? localPins[String(x.id)] ?? null,
+      pin: x.pin != null ? String(x.pin) : null,
     }));
     const custMap = Object.fromEntries(custNorm.map(x => [x.id, x]));
     const empMap  = Object.fromEntries(empNorm.map(x => [x.id, x]));
@@ -195,6 +211,20 @@ export default function Home() {
   }
   function doLogout() {
     setRole(null); setSelectedEmpId(null); setEditMode(false);
+  }
+
+  async function saveOwnerPin(pin: string) {
+    if (settingsReady) {
+      if (pin) {
+        await supabase.from('app_settings').upsert({ key: 'owner_pin', value: pin });
+      } else {
+        await supabase.from('app_settings').delete().eq('key', 'owner_pin');
+      }
+    } else {
+      if (pin) localStorage.setItem('iij_owner_pin', pin);
+      else localStorage.removeItem('iij_owner_pin');
+    }
+    setOwnerPinState(pin);
   }
 
   async function loadOrderLogs(orderId: number) {
@@ -455,7 +485,7 @@ export default function Home() {
     </main>
   );
 
-  if (!role) return <RoleSelectScreen employees={employees} ownerPin={getOwnerPin()} onSelect={doLogin} />;
+  if (!role) return <RoleSelectScreen employees={employees} ownerPin={ownerPin} onSelect={doLogin} onSetOwnerPin={saveOwnerPin} />;
 
   if (role === 'viewer') return (
     <ViewerBoard orders={orders} employees={employees} message={message} error={error}
@@ -534,6 +564,15 @@ export default function Home() {
 
       {message && <div className="notice">{message}</div>}
       {error   && <div className="notice error">{error}</div>}
+      {!settingsReady && (
+        <div className="notice error">
+          ⚠️ ไม่พบตาราง <b>app_settings</b> — รหัสเจ้าของร้านจะไม่บันทึกในฐานข้อมูล
+          กรุณารันคำสั่งนี้ใน Supabase SQL Editor:&nbsp;
+          <code style={{ background:'#fef2f2', padding:'2px 6px', borderRadius:4 }}>
+            CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT);
+          </code>
+        </div>
+      )}
 
       <div className="tabs">
         {TABS.map(t => (
@@ -815,7 +854,7 @@ export default function Home() {
               </div>
             </div>
           </div>
-          <OwnerPinManager />
+          <OwnerPinManager ownerPin={ownerPin} onSave={saveOwnerPin} />
         </section>
       )}
 
@@ -1204,10 +1243,11 @@ function PrintSlip({ order }: { order: Order }) {
 }
 
 // ─── Role Selection Screen ────────────────────────────────────────────────────
-function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect }: {
+function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect, onSetOwnerPin }: {
   employees: Employee[];
   ownerPin: string;
   onSelect: (role: 'owner' | 'employee' | 'viewer', empId?: number, edit?: boolean) => void;
+  onSetOwnerPin: (pin: string) => Promise<void>;
 }) {
   const [localOwnerPin, setLocalOwnerPin] = useState(initialOwnerPin);
   const [screen,       setScreen]       = useState<'main' | 'ownerSetup'>(initialOwnerPin ? 'main' : 'ownerSetup');
@@ -1225,10 +1265,10 @@ function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect }: {
     onSelect('owner');
   }
 
-  function handleSetupSave() {
+  async function handleSetupSave() {
     if (!setupPin1) { setLoginErr('กรุณาตั้งรหัสผ่าน'); return; }
     if (setupPin1 !== setupPin2) { setLoginErr('รหัสผ่านไม่ตรงกัน กรุณาลองใหม่'); return; }
-    setOwnerPin(setupPin1);
+    await onSetOwnerPin(setupPin1);
     setLocalOwnerPin(setupPin1);
     setScreen('main');
     setLoginErr('');
@@ -1381,29 +1421,28 @@ function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect }: {
 }
 
 // ─── Owner PIN Manager (shown inside employees tab) ───────────────────────────
-function OwnerPinManager() {
-  const [pin,    setPin]    = useState(getOwnerPin());
-  const [input,  setInput]  = useState('');
-  const [saved,  setSaved]  = useState(false);
-  function save() {
-    setOwnerPin(input.trim());
-    setPin(input.trim());
-    setInput('');
-    setSaved(true);
+function OwnerPinManager({ ownerPin, onSave }: { ownerPin: string; onSave: (p: string) => Promise<void> }) {
+  const [input,   setInput]   = useState('');
+  const [saving,  setSaving]  = useState(false);
+  const [saved,   setSaved]   = useState(false);
+  async function save() {
+    setSaving(true);
+    await onSave(input.trim());
+    setSaving(false); setInput(''); setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
   return (
     <div className="card" style={{ padding:'16px 20px' }}>
       <h3 style={{ margin:'0 0 10px', fontSize:15 }}>🔑 รหัสเจ้าของร้าน</h3>
       <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-        {pin
-          ? <span style={{ fontSize:13, color:'var(--muted)' }}>รหัสปัจจุบัน: <b>{'•'.repeat(pin.length)}</b> ({pin.length} ตัว)</span>
-          : <span style={{ fontSize:13, color:'var(--muted)' }}>ยังไม่มีรหัส — ทุกคนเข้าได้โดยไม่ต้องใส่รหัส</span>}
+        {ownerPin
+          ? <span style={{ fontSize:13, color:'var(--muted)' }}>รหัสปัจจุบัน: <b>{'•'.repeat(ownerPin.length)}</b> ({ownerPin.length} ตัว)</span>
+          : <span style={{ fontSize:13, color:'var(--muted)' }}>ยังไม่มีรหัส</span>}
         <input type="password" placeholder="ตั้ง/เปลี่ยนรหัส (เว้นว่างเพื่อลบ)"
           value={input} onChange={e => setInput(e.target.value)}
           style={{ flex:1, minWidth:180 }} />
-        <button className="btnGreen btnSm" onClick={save}>{saved ? 'บันทึกแล้ว ✓' : 'บันทึก'}</button>
-        {pin && <button className="btnRed btnSm" onClick={() => { setOwnerPin(''); setPin(''); }}>ลบรหัส</button>}
+        <button className="btnGreen btnSm" onClick={save} disabled={saving}>{saved ? 'บันทึกแล้ว ✓' : saving ? 'กำลังบันทึก...' : 'บันทึก'}</button>
+        {ownerPin && <button className="btnRed btnSm" onClick={() => onSave('')} disabled={saving}>ลบรหัส</button>}
       </div>
     </div>
   );
