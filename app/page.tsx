@@ -189,24 +189,12 @@ export default function Home() {
   }
   useEffect(() => { load(); }, []);
 
-  useEffect(() => {
-    const r = localStorage.getItem('iij_role') as 'owner' | 'employee' | 'viewer' | null;
-    const e = localStorage.getItem('iij_emp');
-    const em = localStorage.getItem('iij_edit');
-    if (r) setRole(r);
-    if (e) setSelectedEmpId(Number(e));
-    if (em) setEditMode(em === '1');
-  }, []);
-
   function doLogin(r: 'owner' | 'employee' | 'viewer', empId?: number, edit?: boolean) {
     setRole(r); setEditMode(!!edit);
-    localStorage.setItem('iij_role', r);
-    localStorage.setItem('iij_edit', edit ? '1' : '0');
-    if (empId !== undefined) { setSelectedEmpId(empId); localStorage.setItem('iij_emp', String(empId)); }
+    if (empId !== undefined) setSelectedEmpId(empId);
   }
   function doLogout() {
     setRole(null); setSelectedEmpId(null); setEditMode(false);
-    localStorage.removeItem('iij_role'); localStorage.removeItem('iij_emp'); localStorage.removeItem('iij_edit');
   }
 
   async function loadOrderLogs(orderId: number) {
