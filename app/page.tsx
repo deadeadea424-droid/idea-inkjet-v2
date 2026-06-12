@@ -1187,19 +1187,32 @@ function PrintSlip({ order }: { order: Order }) {
 }
 
 // ─── Role Selection Screen ────────────────────────────────────────────────────
-function RoleSelectScreen({ employees, ownerPin, onSelect }: {
+function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect }: {
   employees: Employee[];
   ownerPin: string;
   onSelect: (role: 'owner' | 'employee' | 'viewer', empId?: number, edit?: boolean) => void;
 }) {
+  const [localOwnerPin, setLocalOwnerPin] = useState(initialOwnerPin);
+  const [screen, setScreen] = useState<'main' | 'ownerSetup'>(initialOwnerPin ? 'main' : 'ownerSetup');
   const [ownerInput, setOwnerInput] = useState('');
+  const [setupPin1,  setSetupPin1]  = useState('');
+  const [setupPin2,  setSetupPin2]  = useState('');
   const [empId,      setEmpId]      = useState('');
   const [empInput,   setEmpInput]   = useState('');
   const [loginErr,   setLoginErr]   = useState('');
 
   function handleOwner() {
-    if (ownerPin && ownerInput !== ownerPin) { setLoginErr('รหัสเจ้าของร้านไม่ถูกต้อง'); return; }
+    if (ownerInput !== localOwnerPin) { setLoginErr('รหัสเจ้าของร้านไม่ถูกต้อง'); return; }
     onSelect('owner');
+  }
+
+  function handleSetupSave() {
+    if (!setupPin1) { setLoginErr('กรุณาตั้งรหัสผ่าน'); return; }
+    if (setupPin1 !== setupPin2) { setLoginErr('รหัสผ่านไม่ตรงกัน กรุณาลองใหม่'); return; }
+    setOwnerPin(setupPin1);
+    setLocalOwnerPin(setupPin1);
+    setScreen('main');
+    setLoginErr('');
   }
 
   function handleEmp() {
@@ -1207,7 +1220,6 @@ function RoleSelectScreen({ employees, ownerPin, onSelect }: {
     if (!emp) return;
     setLoginErr('');
     if (!emp.pin) {
-      // No PIN set — allow login in view-only mode
       onSelect('employee', emp.id, false);
       return;
     }
@@ -1221,8 +1233,44 @@ function RoleSelectScreen({ employees, ownerPin, onSelect }: {
   const selEmp = employees.find(e => String(e.id) === empId);
   const empNeedsPin = !!selEmp?.pin;
 
+  const centerLayout: React.CSSProperties = {
+    minHeight:'100vh', display:'flex', alignItems:'center',
+    justifyContent:'center', padding:'20px 16px',
+  };
+
+  // ── First-time owner PIN setup ────────────────────────────────────────────
+  if (screen === 'ownerSetup') {
+    return (
+      <main className="container" style={centerLayout}>
+        <div style={{ width:'100%', maxWidth:420 }}>
+          <div style={{ textAlign:'center', marginBottom:24 }}>
+            <div className="brand" style={{ fontSize:28 }}>Idea Inkjet</div>
+            <div className="sub">ระบบจัดการงานพิมพ์</div>
+          </div>
+          <div className="card" style={{ padding:'24px', border:'2px solid #fca5a5' }}>
+            <h3 style={{ margin:'0 0 6px', fontSize:16 }}>🔑 ตั้งรหัสผ่านเจ้าของร้าน</h3>
+            <p style={{ margin:'0 0 18px', fontSize:13, color:'var(--muted)' }}>
+              ยังไม่มีรหัสผ่านสำหรับเจ้าของร้าน — กรุณาตั้งรหัสก่อนเริ่มใช้งานเพื่อความปลอดภัย
+            </p>
+            {loginErr && <div className="notice error" style={{ marginBottom:12 }}>{loginErr}</div>}
+            <label>รหัสผ่านใหม่</label>
+            <input type="password" placeholder="ตั้งรหัสผ่าน" style={{ marginBottom:10 }}
+              value={setupPin1} onChange={e => { setSetupPin1(e.target.value); setLoginErr(''); }}
+              onKeyDown={e => e.key === 'Enter' && handleSetupSave()} autoFocus />
+            <label>ยืนยันรหัสผ่าน</label>
+            <input type="password" placeholder="ใส่รหัสผ่านอีกครั้ง" style={{ marginBottom:16 }}
+              value={setupPin2} onChange={e => { setSetupPin2(e.target.value); setLoginErr(''); }}
+              onKeyDown={e => e.key === 'Enter' && handleSetupSave()} />
+            <button style={{ width:'100%' }} onClick={handleSetupSave}>บันทึกรหัสและเริ่มใช้งาน</button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // ── Main login screen ─────────────────────────────────────────────────────
   return (
-    <main className="container" style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', padding:'20px 16px' }}>
+    <main className="container" style={centerLayout}>
       <div style={{ width:'100%', maxWidth:420 }}>
         <div style={{ textAlign:'center', marginBottom:24 }}>
           <div className="brand" style={{ fontSize:28 }}>Idea Inkjet</div>
@@ -1232,20 +1280,22 @@ function RoleSelectScreen({ employees, ownerPin, onSelect }: {
         {loginErr && <div className="notice error" style={{ textAlign:'center', marginBottom:12 }}>{loginErr}</div>}
 
         {/* ── Owner ── */}
-        <div className="card" style={{ padding:'20px 24px', marginBottom:12 }}>
+        <div className="card" style={{ padding:'20px 24px', marginBottom:12, borderColor:'#bfdbfe' }}>
           <div style={{ fontWeight:700, marginBottom:12 }}>🏪 เจ้าของร้าน</div>
-          {ownerPin ? (
-            <div style={{ display:'flex', gap:8 }}>
-              <input type="password" placeholder="รหัสเจ้าของร้าน"
-                value={ownerInput} onChange={e => { setOwnerInput(e.target.value); setLoginErr(''); }}
-                onKeyDown={e => e.key === 'Enter' && handleOwner()}
-                style={{ flex:1 }} />
-              <button onClick={handleOwner} style={{ width:90 }}>เข้าสู่ระบบ</button>
-            </div>
-          ) : (
-            <button style={{ width:'100%' }} onClick={handleOwner}>เข้าสู่ระบบเจ้าของร้าน</button>
-          )}
+          <div style={{ display:'flex', gap:8 }}>
+            <input type="password" placeholder="รหัสเจ้าของร้าน" autoFocus
+              value={ownerInput} onChange={e => { setOwnerInput(e.target.value); setLoginErr(''); }}
+              onKeyDown={e => e.key === 'Enter' && handleOwner()}
+              style={{ flex:1 }} />
+            <button onClick={handleOwner} style={{ width:90 }}>เข้าสู่ระบบ</button>
+          </div>
           <div className="sub" style={{ marginTop:6 }}>ดูภาพรวมทั้งหมด จัดการระบบ</div>
+        </div>
+
+        <div style={{ display:'flex', alignItems:'center', gap:8, margin:'16px 0', color:'var(--muted)', fontSize:13 }}>
+          <div style={{ flex:1, height:1, background:'var(--line)' }} />
+          หรือเข้าระบบพนักงาน
+          <div style={{ flex:1, height:1, background:'var(--line)' }} />
         </div>
 
         {/* ── Employee ── */}
@@ -1261,7 +1311,7 @@ function RoleSelectScreen({ employees, ownerPin, onSelect }: {
           {empId && (
             empNeedsPin ? (
               <div style={{ display:'flex', gap:8, marginBottom:10 }}>
-                <input type="password" placeholder="ใส่รหัสของคุณ" autoFocus
+                <input type="password" placeholder="ใส่รหัสของคุณ"
                   value={empInput} onChange={e => { setEmpInput(e.target.value); setLoginErr(''); }}
                   onKeyDown={e => e.key === 'Enter' && handleEmp()}
                   style={{ flex:1 }} />
