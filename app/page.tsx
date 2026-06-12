@@ -1193,13 +1193,15 @@ function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect }: {
   onSelect: (role: 'owner' | 'employee' | 'viewer', empId?: number, edit?: boolean) => void;
 }) {
   const [localOwnerPin, setLocalOwnerPin] = useState(initialOwnerPin);
-  const [screen, setScreen] = useState<'main' | 'ownerSetup'>(initialOwnerPin ? 'main' : 'ownerSetup');
-  const [ownerInput, setOwnerInput] = useState('');
-  const [setupPin1,  setSetupPin1]  = useState('');
-  const [setupPin2,  setSetupPin2]  = useState('');
-  const [empId,      setEmpId]      = useState('');
-  const [empInput,   setEmpInput]   = useState('');
-  const [loginErr,   setLoginErr]   = useState('');
+  const [screen,       setScreen]       = useState<'main' | 'ownerSetup'>(initialOwnerPin ? 'main' : 'ownerSetup');
+  const [ownerInput,   setOwnerInput]   = useState('');
+  const [setupPin1,    setSetupPin1]    = useState('');
+  const [setupPin2,    setSetupPin2]    = useState('');
+  const [empId,        setEmpId]        = useState('');
+  const [empInput,     setEmpInput]     = useState('');
+  const [empNewPin1,   setEmpNewPin1]   = useState('');
+  const [empNewPin2,   setEmpNewPin2]   = useState('');
+  const [loginErr,     setLoginErr]     = useState('');
 
   function handleOwner() {
     if (ownerInput !== localOwnerPin) { setLoginErr('รหัสเจ้าของร้านไม่ถูกต้อง'); return; }
@@ -1219,15 +1221,21 @@ function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect }: {
     const emp = employees.find(e => String(e.id) === empId);
     if (!emp) return;
     setLoginErr('');
-    if (!emp.pin) {
-      onSelect('employee', emp.id, false);
-      return;
-    }
     if (empInput === emp.pin) {
       onSelect('employee', emp.id, true);
     } else {
       setLoginErr('รหัสไม่ถูกต้อง');
     }
+  }
+
+  function handleEmpSetup() {
+    const emp = employees.find(e => String(e.id) === empId);
+    if (!emp) return;
+    if (!empNewPin1) { setLoginErr('กรุณาตั้งรหัสผ่าน'); return; }
+    if (empNewPin1 !== empNewPin2) { setLoginErr('รหัสผ่านไม่ตรงกัน กรุณาลองใหม่'); return; }
+    savePin(emp.id, empNewPin1);
+    setLoginErr('');
+    onSelect('employee', emp.id, true);
   }
 
   const selEmp = employees.find(e => String(e.id) === empId);
@@ -1301,8 +1309,10 @@ function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect }: {
         {/* ── Employee ── */}
         <div className="card" style={{ padding:'20px 24px', marginBottom:12 }}>
           <div style={{ fontWeight:700, marginBottom:12 }}>👷 พนักงาน</div>
-          <select value={empId} onChange={e => { setEmpId(e.target.value); setEmpInput(''); setLoginErr(''); }}
-            style={{ width:'100%', marginBottom:10 }}>
+          <select value={empId} onChange={e => {
+            setEmpId(e.target.value);
+            setEmpInput(''); setEmpNewPin1(''); setEmpNewPin2(''); setLoginErr('');
+          }} style={{ width:'100%', marginBottom:10 }}>
             <option value="">เลือกชื่อพนักงาน...</option>
             {employees.map(e => (
               <option key={e.id} value={e.id}>{e.name}{e.position ? ` — ${e.position}` : ''}</option>
@@ -1310,21 +1320,37 @@ function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect }: {
           </select>
           {empId && (
             empNeedsPin ? (
+              /* ── has PIN: enter it ── */
               <div style={{ display:'flex', gap:8, marginBottom:10 }}>
-                <input type="password" placeholder="ใส่รหัสของคุณ"
+                <input type="password" placeholder="ใส่รหัสของคุณ" autoFocus
                   value={empInput} onChange={e => { setEmpInput(e.target.value); setLoginErr(''); }}
                   onKeyDown={e => e.key === 'Enter' && handleEmp()}
                   style={{ flex:1 }} />
                 <button className="btnGreen" onClick={handleEmp} style={{ width:90 }}>เข้าสู่ระบบ</button>
               </div>
             ) : (
+              /* ── no PIN: force first-time setup ── */
               <div style={{ marginBottom:10 }}>
-                <div className="notice" style={{ margin:'0 0 8px', fontSize:13 }}>ยังไม่มีรหัส — เข้าได้แต่แก้ไขไม่ได้</div>
-                <button className="btnGreen" style={{ width:'100%' }} onClick={handleEmp}>เข้าสู่ระบบ (ดูอย่างเดียว)</button>
+                <div className="notice" style={{ margin:'0 0 10px', fontSize:13 }}>
+                  ยังไม่มีรหัสผ่าน — กรุณาตั้งรหัสก่อนเข้าใช้งาน
+                </div>
+                <label>รหัสผ่านใหม่</label>
+                <input type="password" placeholder="ตั้งรหัสผ่าน" autoFocus
+                  value={empNewPin1} onChange={e => { setEmpNewPin1(e.target.value); setLoginErr(''); }}
+                  onKeyDown={e => e.key === 'Enter' && handleEmpSetup()}
+                  style={{ marginBottom:8 }} />
+                <label>ยืนยันรหัสผ่าน</label>
+                <input type="password" placeholder="ใส่รหัสผ่านอีกครั้ง"
+                  value={empNewPin2} onChange={e => { setEmpNewPin2(e.target.value); setLoginErr(''); }}
+                  onKeyDown={e => e.key === 'Enter' && handleEmpSetup()}
+                  style={{ marginBottom:10 }} />
+                <button className="btnGreen" style={{ width:'100%' }} onClick={handleEmpSetup}>
+                  ตั้งรหัสและเข้าสู่ระบบ
+                </button>
               </div>
             )
           )}
-          {!empId && <div className="sub" style={{ fontSize:12 }}>ดูและแก้ไขงานของตัวเองได้เมื่อใส่รหัสถูก</div>}
+          {!empId && <div className="sub" style={{ fontSize:12 }}>เลือกชื่อแล้วใส่รหัสเพื่อเข้าสู่ระบบ</div>}
         </div>
 
         {/* ── Viewer ── */}
@@ -1379,6 +1405,18 @@ type EmpViewProps = {
 function EmployeeView({ emp, orders, editMode, message, error, loading, onLogout, onLoad, onChangeStatus, onLoadLogs, orderLogs, logsLoading, logsFor, today }: EmpViewProps) {
   const [filter, setFilter]       = useState<'active' | 'all' | 'done'>('active');
   const [expandedId, setExpanded] = useState<number | null>(null);
+  const [showPin,    setShowPin]  = useState(false);
+  const [pinNew1,    setPinNew1]  = useState('');
+  const [pinNew2,    setPinNew2]  = useState('');
+  const [pinMsg,     setPinMsg]   = useState('');
+
+  function handleSavePin() {
+    if (!pinNew1) { setPinMsg('กรุณาใส่รหัสผ่านใหม่'); return; }
+    if (pinNew1 !== pinNew2) { setPinMsg('รหัสผ่านไม่ตรงกัน'); return; }
+    savePin(emp.id, pinNew1);
+    setPinNew1(''); setPinNew2(''); setPinMsg('');
+    setShowPin(false);
+  }
 
   const DONE   = ['ชำระเงินแล้ว','ยกเลิก'];
   const active = orders.filter(o => !DONE.includes(o.status));
@@ -1412,6 +1450,32 @@ function EmployeeView({ emp, orders, editMode, message, error, loading, onLogout
       )}
       {message && <div className="notice">{message}</div>}
       {error   && <div className="notice error">{error}</div>}
+
+      {/* ── Change PIN card ── */}
+      <div className="card" style={{ padding:'12px 16px', marginBottom:10 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <span style={{ fontSize:14, fontWeight:600 }}>🔑 รหัสผ่านของฉัน</span>
+          <button className="btnSm btn2" onClick={() => { setShowPin(p => !p); setPinMsg(''); setPinNew1(''); setPinNew2(''); }}>
+            {showPin ? 'ยกเลิก' : 'เปลี่ยนรหัสผ่าน'}
+          </button>
+        </div>
+        {showPin && (
+          <div style={{ marginTop:10 }}>
+            {pinMsg && <div className="notice error" style={{ marginBottom:8, fontSize:13 }}>{pinMsg}</div>}
+            <label>รหัสผ่านใหม่</label>
+            <input type="password" placeholder="ใส่รหัสผ่านใหม่" autoFocus
+              value={pinNew1} onChange={e => { setPinNew1(e.target.value); setPinMsg(''); }}
+              onKeyDown={e => e.key === 'Enter' && handleSavePin()}
+              style={{ marginBottom:8 }} />
+            <label>ยืนยันรหัสผ่าน</label>
+            <input type="password" placeholder="ใส่รหัสผ่านอีกครั้ง"
+              value={pinNew2} onChange={e => { setPinNew2(e.target.value); setPinMsg(''); }}
+              onKeyDown={e => e.key === 'Enter' && handleSavePin()}
+              style={{ marginBottom:10 }} />
+            <button className="btnGreen btnSm" onClick={handleSavePin}>บันทึกรหัสผ่านใหม่</button>
+          </div>
+        )}
+      </div>
 
       {/* Summary row */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:14 }}>
