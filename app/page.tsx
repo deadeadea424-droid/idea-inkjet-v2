@@ -95,12 +95,15 @@ async function dbUpdate(table: string, id: number, data: Record<string, any>) {
 }
 
 // ─── PIN helpers (DB-based via app_settings) ─────────────────────────────────
-async function savePin(empId: number, pin: string) {
+async function savePin(empId: number, pin: string): Promise<string> {
   if (pin) {
-    await supabase.from('app_settings').upsert({ key: `pin_emp_${empId}`, value: pin });
+    const { error } = await supabase.from('app_settings').upsert({ key: `pin_emp_${empId}`, value: pin });
+    if (error) return error.message;
   } else {
-    await supabase.from('app_settings').delete().eq('key', `pin_emp_${empId}`);
+    const { error } = await supabase.from('app_settings').delete().eq('key', `pin_emp_${empId}`);
+    if (error) return error.message;
   }
+  return '';
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -225,13 +228,16 @@ export default function Home() {
     setRole(null); setSelectedEmpId(null); setEditMode(false);
   }
 
-  async function saveOwnerPin(pin: string) {
+  async function saveOwnerPin(pin: string): Promise<string> {
     if (pin) {
-      await supabase.from('app_settings').upsert({ key: 'owner_pin', value: pin });
+      const { error } = await supabase.from('app_settings').upsert({ key: 'owner_pin', value: pin });
+      if (error) return error.message;
     } else {
-      await supabase.from('app_settings').delete().eq('key', 'owner_pin');
+      const { error } = await supabase.from('app_settings').delete().eq('key', 'owner_pin');
+      if (error) return error.message;
     }
     setOwnerPinState(pin);
+    return '';
   }
 
   async function loadOrderLogs(orderId: number) {
@@ -343,7 +349,10 @@ export default function Home() {
       name: empForm.name, position: empForm.position, role: empForm.role,
     });
     if (res.error) { setError(res.error.message); return; }
-    if (empForm.pin && res.data?.id) savePin(res.data.id, empForm.pin);
+    if (empForm.pin && res.data?.id) {
+      const pinErr = await savePin(res.data.id, empForm.pin);
+      if (pinErr) { setError('บันทึกรหัสพนักงานไม่สำเร็จ: ' + pinErr); return; }
+    }
     setEmpForm({ name:'', position:'', role:'graphic', pin:'' });
     show('เพิ่มพนักงานแล้ว'); load();
   }
@@ -429,7 +438,10 @@ export default function Home() {
     const { pin, ...rest } = editEmpForm;
     const res = await dbUpdate('employees', editEmp.id, rest);
     if (res.error) { setError(res.error.message); return; }
-    savePin(editEmp.id, pin);
+    if (pin) {
+      const pinErr = await savePin(editEmp.id, pin);
+      if (pinErr) { setError('บันทึกรหัสพนักงานไม่สำเร็จ: ' + pinErr); return; }
+    }
     setEditEmp(null); show('แก้ไขพนักงานแล้ว'); load();
   }
 
@@ -506,10 +518,11 @@ export default function Home() {
             กรุณาเปิด <b>Supabase → SQL Editor</b> แล้วรันคำสั่งนี้:
           </p>
           <div style={{ background:'#1e293b', color:'#86efac', borderRadius:10, padding:'14px 16px', fontFamily:'monospace', fontSize:14, marginBottom:16, userSelect:'all' }}>
-            CREATE TABLE app_settings (<br/>
+            CREATE TABLE IF NOT EXISTS app_settings (<br/>
             &nbsp;&nbsp;key TEXT PRIMARY KEY,<br/>
             &nbsp;&nbsp;value TEXT<br/>
-            );
+            );<br/>
+            ALTER TABLE app_settings DISABLE ROW LEVEL SECURITY;
           </div>
           <button style={{ width:'100%' }} onClick={() => { setInitialized(false); setDbSetupNeeded(false); load(); }}>
             ✓ สร้างแล้ว — ตรวจสอบอีกครั้ง
@@ -1272,7 +1285,7 @@ function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect, onSe
   employees: Employee[];
   ownerPin: string;
   onSelect: (role: 'owner' | 'employee' | 'viewer', empId?: number, edit?: boolean) => void;
-  onSetOwnerPin: (pin: string) => Promise<void>;
+  onSetOwnerPin: (pin: string) => Promise<string>;
 }) {
   const [localOwnerPin, setLocalOwnerPin] = useState(initialOwnerPin);
   const [screen,       setScreen]       = useState<'main' | 'ownerSetup'>(initialOwnerPin ? 'main' : 'ownerSetup');
@@ -1293,7 +1306,8 @@ function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect, onSe
   async function handleSetupSave() {
     if (!setupPin1) { setLoginErr('กรุณาตั้งรหัสผ่าน'); return; }
     if (setupPin1 !== setupPin2) { setLoginErr('รหัสผ่านไม่ตรงกัน กรุณาลองใหม่'); return; }
-    await onSetOwnerPin(setupPin1);
+    const err = await onSetOwnerPin(setupPin1);
+    if (err) { setLoginErr('บันทึกไม่สำเร็จ: ' + err); return; }
     setLocalOwnerPin(setupPin1);
     setScreen('main');
     setLoginErr('');
@@ -1310,12 +1324,13 @@ function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect, onSe
     }
   }
 
-  function handleEmpSetup() {
+  async function handleEmpSetup() {
     const emp = employees.find(e => String(e.id) === empId);
     if (!emp) return;
     if (!empNewPin1) { setLoginErr('กรุณาตั้งรหัสผ่าน'); return; }
     if (empNewPin1 !== empNewPin2) { setLoginErr('รหัสผ่านไม่ตรงกัน กรุณาลองใหม่'); return; }
-    savePin(emp.id, empNewPin1);
+    const err = await savePin(emp.id, empNewPin1);
+    if (err) { setLoginErr('บันทึกไม่สำเร็จ: ' + err); return; }
     setLoginErr('');
     onSelect('employee', emp.id, true);
   }
@@ -1446,7 +1461,7 @@ function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect, onSe
 }
 
 // ─── Owner PIN Manager (shown inside employees tab) ───────────────────────────
-function OwnerPinManager({ ownerPin, onSave }: { ownerPin: string; onSave: (p: string) => Promise<void> }) {
+function OwnerPinManager({ ownerPin, onSave }: { ownerPin: string; onSave: (p: string) => Promise<string> }) {
   const [input,   setInput]   = useState('');
   const [saving,  setSaving]  = useState(false);
   const [saved,   setSaved]   = useState(false);
@@ -1491,12 +1506,13 @@ function EmployeeView({ emp, orders, editMode, message, error, loading, onLogout
   const [pinNew2,    setPinNew2]  = useState('');
   const [pinMsg,     setPinMsg]   = useState('');
 
-  function handleSavePin() {
+  async function handleSavePin() {
     if (!pinNew1) { setPinMsg('กรุณาใส่รหัสผ่านใหม่'); return; }
     if (pinNew1 !== pinNew2) { setPinMsg('รหัสผ่านไม่ตรงกัน'); return; }
-    savePin(emp.id, pinNew1);
-    setPinNew1(''); setPinNew2(''); setPinMsg('');
-    setShowPin(false);
+    const err = await savePin(emp.id, pinNew1);
+    if (err) { setPinMsg('บันทึกไม่สำเร็จ: ' + err); return; }
+    setPinNew1(''); setPinNew2(''); setPinMsg('บันทึกรหัสผ่านแล้ว ✓');
+    setTimeout(() => { setPinMsg(''); setShowPin(false); }, 1500);
   }
 
   const DONE   = ['ชำระเงินแล้ว','ยกเลิก'];
