@@ -94,9 +94,13 @@ async function dbUpdate(table: string, id: number, data: Record<string, any>) {
   return res;
 }
 
-// ─── PIN helpers (DB-based) ──────────────────────────────────────────────────
+// ─── PIN helpers (DB-based via app_settings) ─────────────────────────────────
 async function savePin(empId: number, pin: string) {
-  await supabase.from('employees').update({ pin: pin || null }).eq('id', empId);
+  if (pin) {
+    await supabase.from('app_settings').upsert({ key: `pin_emp_${empId}`, value: pin });
+  } else {
+    await supabase.from('app_settings').delete().eq('key', `pin_emp_${empId}`);
+  }
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -114,7 +118,7 @@ export default function Home() {
   const [editMode, setEditMode]   = useState(false);
   const [viewAsEmp, setViewAsEmp] = useState<number | null>(null);
   const [ownerPin, setOwnerPinState] = useState('');
-  const [settingsReady, setSettingsReady] = useState(true);
+  const [dbSetupNeeded, setDbSetupNeeded] = useState(false);
 
   const [custForm, setCustForm]   = useState({ name:'', phone:'', line_id:'', contact_channel:'LINE' });
   const [empForm,  setEmpForm]    = useState({ name:'', position:'', role:'graphic', pin:'' });
@@ -144,35 +148,43 @@ export default function Home() {
   // ── Load ────────────────────────────────────────────────────────────────────
   async function load() {
     setLoading(true); setError('');
-    const [c, e, o, s] = await Promise.all([
+    // Load main data + all settings in one shot
+    const [c, e, o, allSettings] = await Promise.all([
       supabase.from('customers').select('*').order('id', { ascending: false }),
       supabase.from('employees').select('*').order('id', { ascending: false }),
       supabase.from('orders').select('*').order('id', { ascending: false }),
-      supabase.from('app_settings').select('value').eq('key', 'owner_pin').maybeSingle(),
+      supabase.from('app_settings').select('key, value'),
     ]);
     setLoading(false); setInitialized(true);
+
+    // If app_settings table is missing, show setup screen and stop
+    if (allSettings.error) {
+      setDbSetupNeeded(true);
+      return;
+    }
+    setDbSetupNeeded(false);
+
     if (c.error || e.error || o.error) {
       setError(c.error?.message || e.error?.message || o.error?.message || 'โหลดข้อมูลไม่สำเร็จ'); return;
     }
-    // Load owner PIN from app_settings
-    if (!s.error) {
-      setSettingsReady(true);
-      let pin = s.data?.value || '';
-      if (!pin) {
-        const legacy = localStorage.getItem('iij_owner_pin');
-        if (legacy) {
-          await supabase.from('app_settings').upsert({ key: 'owner_pin', value: legacy });
-          localStorage.removeItem('iij_owner_pin');
-          pin = legacy;
-        }
+
+    // Build settings map: { owner_pin: '...', pin_emp_1: '...', ... }
+    const settingsMap: Record<string, string> = {};
+    (allSettings.data || []).forEach((row: any) => { settingsMap[row.key] = row.value; });
+
+    // Migrate legacy localStorage owner PIN once
+    let ownerPinVal = settingsMap['owner_pin'] || '';
+    if (!ownerPinVal) {
+      const legacy = localStorage.getItem('iij_owner_pin');
+      if (legacy) {
+        await supabase.from('app_settings').upsert({ key: 'owner_pin', value: legacy });
+        localStorage.removeItem('iij_owner_pin');
+        ownerPinVal = legacy;
       }
-      setOwnerPinState(pin);
-    } else {
-      setSettingsReady(false);
-      setOwnerPinState(localStorage.getItem('iij_owner_pin') || '');
     }
-    // Clean up old employee PIN cache from localStorage
+    setOwnerPinState(ownerPinVal);
     localStorage.removeItem('iij_pins');
+
     const custNorm: Customer[] = (c.data || []).map((x: any) => ({
       id: x.id, name: x.name ?? x.customer_name ?? '',
       phone: x.phone ?? '', line_id: x.line_id ?? '', contact_channel: x.contact_channel ?? 'LINE',
@@ -180,7 +192,7 @@ export default function Home() {
     const empNorm: Employee[] = (e.data || []).map((x: any) => ({
       id: x.id, name: x.name ?? x.employee_name ?? '',
       position: x.position ?? '', role: x.role ?? 'graphic',
-      pin: x.pin != null ? String(x.pin) : null,
+      pin: settingsMap[`pin_emp_${x.id}`] || null,
     }));
     const custMap = Object.fromEntries(custNorm.map(x => [x.id, x]));
     const empMap  = Object.fromEntries(empNorm.map(x => [x.id, x]));
@@ -214,15 +226,10 @@ export default function Home() {
   }
 
   async function saveOwnerPin(pin: string) {
-    if (settingsReady) {
-      if (pin) {
-        await supabase.from('app_settings').upsert({ key: 'owner_pin', value: pin });
-      } else {
-        await supabase.from('app_settings').delete().eq('key', 'owner_pin');
-      }
+    if (pin) {
+      await supabase.from('app_settings').upsert({ key: 'owner_pin', value: pin });
     } else {
-      if (pin) localStorage.setItem('iij_owner_pin', pin);
-      else localStorage.removeItem('iij_owner_pin');
+      await supabase.from('app_settings').delete().eq('key', 'owner_pin');
     }
     setOwnerPinState(pin);
   }
@@ -485,6 +492,33 @@ export default function Home() {
     </main>
   );
 
+  if (dbSetupNeeded) return (
+    <main className="container" style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', padding:'20px 16px' }}>
+      <div style={{ width:'100%', maxWidth:520 }}>
+        <div style={{ textAlign:'center', marginBottom:24 }}>
+          <div className="brand" style={{ fontSize:28 }}>Idea Inkjet</div>
+          <div className="sub">ระบบจัดการงานพิมพ์</div>
+        </div>
+        <div className="card" style={{ padding:'24px', border:'2px solid #fca5a5' }}>
+          <h3 style={{ margin:'0 0 8px', color:'#dc2626' }}>⚠️ ต้องสร้างตารางฐานข้อมูลก่อน</h3>
+          <p style={{ margin:'0 0 16px', fontSize:14, color:'var(--muted)' }}>
+            ระบบต้องการตาราง <b>app_settings</b> สำหรับเก็บรหัสผ่าน
+            กรุณาเปิด <b>Supabase → SQL Editor</b> แล้วรันคำสั่งนี้:
+          </p>
+          <div style={{ background:'#1e293b', color:'#86efac', borderRadius:10, padding:'14px 16px', fontFamily:'monospace', fontSize:14, marginBottom:16, userSelect:'all' }}>
+            CREATE TABLE app_settings (<br/>
+            &nbsp;&nbsp;key TEXT PRIMARY KEY,<br/>
+            &nbsp;&nbsp;value TEXT<br/>
+            );
+          </div>
+          <button style={{ width:'100%' }} onClick={() => { setInitialized(false); setDbSetupNeeded(false); load(); }}>
+            ✓ สร้างแล้ว — ตรวจสอบอีกครั้ง
+          </button>
+        </div>
+      </div>
+    </main>
+  );
+
   if (!role) return <RoleSelectScreen employees={employees} ownerPin={ownerPin} onSelect={doLogin} onSetOwnerPin={saveOwnerPin} />;
 
   if (role === 'viewer') return (
@@ -564,15 +598,6 @@ export default function Home() {
 
       {message && <div className="notice">{message}</div>}
       {error   && <div className="notice error">{error}</div>}
-      {!settingsReady && (
-        <div className="notice error">
-          ⚠️ ไม่พบตาราง <b>app_settings</b> — รหัสเจ้าของร้านจะไม่บันทึกในฐานข้อมูล
-          กรุณารันคำสั่งนี้ใน Supabase SQL Editor:&nbsp;
-          <code style={{ background:'#fef2f2', padding:'2px 6px', borderRadius:4 }}>
-            CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT);
-          </code>
-        </div>
-      )}
 
       <div className="tabs">
         {TABS.map(t => (
