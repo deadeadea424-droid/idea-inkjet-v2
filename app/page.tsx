@@ -117,6 +117,7 @@ export default function Home() {
   const [role, setRole]           = useState<'owner' | 'employee' | 'viewer' | null>(null);
   const [selectedEmpId, setSelectedEmpId] = useState<number | null>(null);
   const [editMode, setEditMode]   = useState(false);
+  const [viewAsEmp, setViewAsEmp] = useState<number | null>(null);
 
   const [custForm, setCustForm]   = useState({ name:'', phone:'', line_id:'', contact_channel:'LINE' });
   const [empForm,  setEmpForm]    = useState({ name:'', position:'', role:'graphic', pin:'' });
@@ -495,6 +496,33 @@ export default function Home() {
     );
   }
 
+  // ── Owner preview of an employee's view ────────────────────────────────────
+  if (role === 'owner' && viewAsEmp !== null) {
+    const emp = employees.find(e => e.id === viewAsEmp);
+    if (emp) return (
+      <div>
+        <div style={{ background:'#1d4ed8', color:'white', padding:'10px 20px',
+          display:'flex', justifyContent:'space-between', alignItems:'center',
+          position:'sticky', top:0, zIndex:50 }}>
+          <span style={{ fontSize:14 }}>👁 ดูในฐานะ: <b>{emp.name}</b>{emp.position ? ` · ${emp.position}` : ''}</span>
+          <button style={{ background:'rgba(255,255,255,0.2)', color:'white', fontWeight:700,
+            borderRadius:8, padding:'5px 14px', fontSize:13, border:'none', cursor:'pointer' }}
+            onClick={() => setViewAsEmp(null)}>
+            ← กลับหน้าเจ้าของร้าน
+          </button>
+        </div>
+        <EmployeeView
+          emp={emp}
+          orders={orders.filter(o => o.designer_id === emp.id || o.production_id === emp.id)}
+          message={message} error={error} loading={loading} editMode={true}
+          onLogout={() => setViewAsEmp(null)} onLoad={load} onChangeStatus={changeStatus}
+          onLoadLogs={loadOrderLogs} orderLogs={orderLogs}
+          logsLoading={logsLoading} logsFor={logsFor} today={today}
+        />
+      </div>
+    );
+  }
+
   // ── Tabs ───────────────────────────────────────────────────────────────────
   const TABS = [
     ['dashboard','Dashboard'], ['new-order','เปิดงานใหม่'],
@@ -788,6 +816,7 @@ export default function Home() {
                         </div>
                       </div>
                       <div className="rowActions">
+                        <button className="btnSm" style={{ background:'#0891b2' }} onClick={() => setViewAsEmp(emp.id)}>ดูหน้าจอ</button>
                         <button className="btn2 btnSm" onClick={() => openEditEmployee(emp)}>แก้ไข/รหัส</button>
                         {(asDes + asPro) === 0 && <button className="btnRed btnSm" onClick={() => deleteEmployee(emp.id)}>ลบ</button>}
                       </div>
