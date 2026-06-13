@@ -10,10 +10,13 @@ type StatusLog = { id: number; order_id: number; old_status: string; new_status:
 type Order = {
   id: number; order_code: string; title: string; status: string;
   due_date: string; price: number; deposit: number; balance: number;
-  customer_id: number; designer_id: number | null; production_id: number | null;
+  customer_id: number;
+  designer_id:  number | null; production_id: number | null;
+  receiver_id:  number | null; measurer_id:   number | null; delivery_id: number | null;
   detail: string; order_type: string; size: string; quantity: number; material: string;
   created_at: string;
   customers?: Customer; designer?: Employee; production?: Employee;
+  receiver?: Employee; measurer?: Employee; delivery?: Employee;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -41,6 +44,7 @@ const EMPTY_ORDER = {
   customer_id:'', title:'', order_type:'ป้ายไวนิล', detail:'',
   size:'', quantity:'1', material:'', price:'0', deposit:'0',
   due_date:'', designer_id:'', production_id:'',
+  receiver_id:'', measurer_id:'', delivery_id:'',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -223,9 +227,15 @@ export default function Home() {
       detail:   row.detail   ?? row.order_detail   ?? '',
       due_date: row.due_date ?? row.order_due_date ?? null,
       created_at: row.created_at ?? null,
+      receiver_id:  row.receiver_id  ?? null,
+      measurer_id:  row.measurer_id  ?? null,
+      delivery_id:  row.delivery_id  ?? null,
       customers:  custMap[row.customer_id]  ?? undefined,
       designer:   empMap[row.designer_id]   ?? undefined,
       production: empMap[row.production_id] ?? undefined,
+      receiver:   empMap[row.receiver_id]   ?? undefined,
+      measurer:   empMap[row.measurer_id]   ?? undefined,
+      delivery:   empMap[row.delivery_id]   ?? undefined,
     }));
     setCustomers(custNorm); setEmployees(empNorm); setOrders(ordNorm);
   }
@@ -396,6 +406,9 @@ export default function Home() {
       status: 'รับงานใหม่',
       designer_id:   orderForm.designer_id   ? Number(orderForm.designer_id)   : null,
       production_id: orderForm.production_id ? Number(orderForm.production_id) : null,
+      receiver_id:   orderForm.receiver_id   ? Number(orderForm.receiver_id)   : null,
+      measurer_id:   orderForm.measurer_id   ? Number(orderForm.measurer_id)   : null,
+      delivery_id:   orderForm.delivery_id   ? Number(orderForm.delivery_id)   : null,
     });
     if (res.error) { setError(res.error.message); return; }
     await supabase.from('order_status_logs').insert({
@@ -415,6 +428,9 @@ export default function Home() {
       deposit:       String(o.deposit || 0),         due_date: o.due_date || '',
       designer_id:   o.designer_id   ? String(o.designer_id)   : '',
       production_id: o.production_id ? String(o.production_id) : '',
+      receiver_id:   o.receiver_id   ? String(o.receiver_id)   : '',
+      measurer_id:   o.measurer_id   ? String(o.measurer_id)   : '',
+      delivery_id:   o.delivery_id   ? String(o.delivery_id)   : '',
     });
   }
 
@@ -439,6 +455,9 @@ export default function Home() {
       price, deposit, balance, due_date: editForm.due_date || null,
       designer_id:   editForm.designer_id   ? Number(editForm.designer_id)   : null,
       production_id: editForm.production_id ? Number(editForm.production_id) : null,
+      receiver_id:   editForm.receiver_id   ? Number(editForm.receiver_id)   : null,
+      measurer_id:   editForm.measurer_id   ? Number(editForm.measurer_id)   : null,
+      delivery_id:   editForm.delivery_id   ? Number(editForm.delivery_id)   : null,
       updated_at: new Date().toISOString(),
     });
     if (res.error) { setError(res.error.message); return; }
@@ -579,7 +598,7 @@ export default function Home() {
     return (
       <EmployeeView
         emp={emp}
-        orders={orders.filter(o => o.designer_id === emp.id || o.production_id === emp.id)}
+        orders={orders.filter(o => o.designer_id === emp.id || o.production_id === emp.id || o.receiver_id === emp.id || o.measurer_id === emp.id || o.delivery_id === emp.id)}
         message={message} error={error} loading={loading} editMode={editMode}
         onLogout={doLogout} onLoad={load} onChangeStatus={changeStatus}
         onLoadLogs={loadOrderLogs} orderLogs={orderLogs}
@@ -605,7 +624,7 @@ export default function Home() {
         </div>
         <EmployeeView
           emp={emp}
-          orders={orders.filter(o => o.designer_id === emp.id || o.production_id === emp.id)}
+          orders={orders.filter(o => o.designer_id === emp.id || o.production_id === emp.id || o.receiver_id === emp.id || o.measurer_id === emp.id || o.delivery_id === emp.id)}
           message={message} error={error} loading={loading} editMode={true}
           onLogout={() => setViewAsEmp(null)} onLoad={load} onChangeStatus={changeStatus}
           onLoadLogs={loadOrderLogs} orderLogs={orderLogs}
@@ -799,8 +818,11 @@ export default function Home() {
                               <span><b>จำนวน:</b> {o.quantity || 1} ชิ้น</span>
                               <span><b>วัสดุ:</b> {o.material || '-'}</span>
                               <span><b>มัดจำ:</b> {fmtMoney(o.deposit)} บาท</span>
-                              <span><b>ออกแบบโดย:</b> {o.designer?.name || '-'}</span>
-                              <span><b>ผลิตโดย:</b> {o.production?.name || '-'}</span>
+                              {o.receiver   && <span><b>รับงาน:</b> {o.receiver.name}</span>}
+                              {o.measurer   && <span><b>วัดป้าย:</b> {o.measurer.name}</span>}
+                              {o.designer   && <span><b>ออกแบบ:</b> {o.designer.name}</span>}
+                              {o.production && <span><b>ผลิต:</b> {o.production.name}</span>}
+                              {o.delivery   && <span><b>ส่งงาน:</b> {o.delivery.name}</span>}
                               {o.detail && <span className="detailFull"><b>หมายเหตุ:</b> {o.detail}</span>}
                             </div>
                             <LogTimeline logs={orderLogs} loading={logsLoading} logsFor={logsFor} orderId={o.id} />
@@ -898,6 +920,9 @@ export default function Home() {
                 {employees.map(emp => {
                   const asDes = orders.filter(o => o.designer_id   === emp.id).length;
                   const asPro = orders.filter(o => o.production_id === emp.id).length;
+                  const asRec = orders.filter(o => o.receiver_id   === emp.id).length;
+                  const asMea = orders.filter(o => o.measurer_id   === emp.id).length;
+                  const asDel = orders.filter(o => o.delivery_id   === emp.id).length;
                   return (
                     <div key={emp.id} className="listRow">
                       <div>
@@ -907,16 +932,19 @@ export default function Home() {
                           ? <span className="countBadge" style={{ background:'#dcfce7', color:'#166534' }}>🔒 มีรหัส</span>
                           : <span className="countBadge" style={{ background:'#fee2e2', color:'#991b1b' }}>🔓 ยังไม่มีรหัส</span>}
                         <div style={{ marginTop:3 }}>
-                          <span className="countBadge">{asDes + asPro} งาน</span>
+                          <span className="countBadge">{asDes + asPro + asRec + asMea + asDel} งาน</span>
+                          {asRec > 0 && <span className="countBadge" style={{ background:'#dbeafe', color:'#1d4ed8' }}>รับงาน {asRec}</span>}
                           {asDes > 0 && <span className="countBadge" style={{ background:'#fef9c3', color:'#854d0e' }}>ออกแบบ {asDes}</span>}
+                          {asMea > 0 && <span className="countBadge" style={{ background:'#d1fae5', color:'#065f46' }}>วัดป้าย {asMea}</span>}
                           {asPro > 0 && <span className="countBadge" style={{ background:'#fae8ff', color:'#7e22ce' }}>ผลิต {asPro}</span>}
+                          {asDel > 0 && <span className="countBadge" style={{ background:'#fef3c7', color:'#92400e' }}>ส่งงาน {asDel}</span>}
                         </div>
                       </div>
                       <div className="rowActions">
                         <button className="btnSm" style={{ background:'#0891b2' }} onClick={() => setViewAsEmp(emp.id)}>ดูหน้าจอ</button>
                         <button className="btn2 btnSm" onClick={() => openEditEmployee(emp)}>แก้ไข/รหัส</button>
                         <CopyLinkBtn path={`/emp/${emp.id}`} label="คัดลอกลิงค์" />
-                        {(asDes + asPro) === 0 && <button className="btnRed btnSm" onClick={() => deleteEmployee(emp.id)}>ลบ</button>}
+                        {(asDes + asPro + asRec + asMea + asDel) === 0 && <button className="btnRed btnSm" onClick={() => deleteEmployee(emp.id)}>ลบ</button>}
                       </div>
                     </div>
                   );
@@ -1125,6 +1153,18 @@ function OrderForm({ form, setForm, customers, employees, onSubmit, submitLabel 
           ยอดค้างชำระ: <b>{fmtMoney(balance)} บาท</b>{balance < 0 && ' (มัดจำเกินราคา)'}
         </div>
       )}
+      <Field label="คนรับงาน">
+        <select value={form.receiver_id} onChange={e => setForm({...form, receiver_id:e.target.value})}>
+          <option value="">ยังไม่กำหนด</option>
+          {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+        </select>
+      </Field>
+      <Field label="คนวัดป้าย">
+        <select value={form.measurer_id} onChange={e => setForm({...form, measurer_id:e.target.value})}>
+          <option value="">ยังไม่กำหนด</option>
+          {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+        </select>
+      </Field>
       <Field label="คนออกแบบ">
         <select value={form.designer_id} onChange={e => setForm({...form, designer_id:e.target.value})}>
           <option value="">ยังไม่กำหนด</option>
@@ -1133,6 +1173,12 @@ function OrderForm({ form, setForm, customers, employees, onSubmit, submitLabel 
       </Field>
       <Field label="คนผลิต">
         <select value={form.production_id} onChange={e => setForm({...form, production_id:e.target.value})}>
+          <option value="">ยังไม่กำหนด</option>
+          {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+        </select>
+      </Field>
+      <Field label="คนส่งงาน">
+        <select value={form.delivery_id} onChange={e => setForm({...form, delivery_id:e.target.value})}>
           <option value="">ยังไม่กำหนด</option>
           {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
         </select>
@@ -1315,8 +1361,11 @@ function PrintSlip({ order }: { order: Order }) {
         {order.size       && <div className="slipRow"><span>ขนาด</span><b>{order.size}</b></div>}
         <div className="slipRow"><span>จำนวน</span><b>{order.quantity || 1} ชิ้น</b></div>
         {order.material   && <div className="slipRow"><span>วัสดุ</span><b>{order.material}</b></div>}
+        {order.receiver   && <div className="slipRow"><span>รับงาน</span><b>{order.receiver.name}</b></div>}
+        {order.measurer   && <div className="slipRow"><span>วัดป้าย</span><b>{order.measurer.name}</b></div>}
         {order.designer   && <div className="slipRow"><span>ออกแบบ</span><b>{order.designer.name}</b></div>}
         {order.production && <div className="slipRow"><span>ผลิต</span><b>{order.production.name}</b></div>}
+        {order.delivery   && <div className="slipRow"><span>ส่งงาน</span><b>{order.delivery.name}</b></div>}
         {order.detail     && <div className="slipNote">{order.detail}</div>}
       </div>
       <div className="slipSection slipPriceSection">
@@ -1737,8 +1786,11 @@ function EmployeeView({ emp, orders, editMode, message, error, loading, onLogout
           </div>
         )}
         {displayed.map(o => {
-          const isDes      = o.designer_id   === emp.id;
-          const isPro      = o.production_id === emp.id;
+          const isRec      = o.receiver_id    === emp.id;
+          const isMea      = o.measurer_id    === emp.id;
+          const isDes      = o.designer_id    === emp.id;
+          const isPro      = o.production_id  === emp.id;
+          const isDel      = o.delivery_id    === emp.id;
           const isOverdue  = !!o.due_date && new Date(o.due_date) < new Date() && !DONE.includes(o.status);
           const isToday    = o.due_date === today && !DONE.includes(o.status);
           const isExpanded = expandedId === o.id;
@@ -1749,8 +1801,11 @@ function EmployeeView({ emp, orders, editMode, message, error, loading, onLogout
                   {o.order_code || `JOB-${String(o.id).padStart(4,'0')}`}
                 </span>
                 <StatusPill status={o.status} />
+                {isRec && <span className="countBadge" style={{ background:'#dbeafe', color:'#1d4ed8' }}>รับงาน</span>}
+                {isMea && <span className="countBadge" style={{ background:'#d1fae5', color:'#065f46' }}>วัดป้าย</span>}
                 {isDes && <span className="countBadge" style={{ background:'#fef9c3', color:'#854d0e' }}>ออกแบบ</span>}
                 {isPro && <span className="countBadge" style={{ background:'#fae8ff', color:'#7e22ce' }}>ผลิต</span>}
+                {isDel && <span className="countBadge" style={{ background:'#fef3c7', color:'#92400e' }}>ส่งงาน</span>}
               </div>
               <div style={{ fontWeight:700, fontSize:15, marginBottom:2 }}>{o.title}</div>
               <div style={{ fontSize:13, color:'var(--muted)' }}>
