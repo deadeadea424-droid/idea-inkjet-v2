@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -126,6 +126,11 @@ export default function Home() {
   const [viewAsEmp, setViewAsEmp] = useState<number | null>(null);
   const [ownerPin, setOwnerPinState] = useState('');
   const [dbSetupNeeded, setDbSetupNeeded] = useState(false);
+  const [notifOpen,  setNotifOpen]  = useState(false);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [notifPerm,  setNotifPerm]  = useState<NotificationPermission>('default');
+  const seenOverdueRef = useRef<Set<number>>(new Set());
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [shopSettings, setShopSettings] = useState({ name:'Idea Inkjet', address:'', tax_id:'', phone:'' });
   const [custForm, setCustForm]   = useState({ name:'', phone:'', line_id:'', contact_channel:'LINE', address:'', tax_id:'' });
@@ -238,8 +243,43 @@ export default function Home() {
       delivery:   empMap[row.delivery_id]   ?? undefined,
     }));
     setCustomers(custNorm); setEmployees(empNorm); setOrders(ordNorm);
+    setLastRefresh(new Date());
+
+    // Browser notifications for overdue + today
+    if (typeof window !== 'undefined' && Notification.permission === 'granted') {
+      const t = new Date().toISOString().split('T')[0];
+      const overdue = ordNorm.filter(o => !!o.due_date && o.due_date < t && !['ชำระเงินแล้ว','ยกเลิก'].includes(o.status));
+      const newOverdue = overdue.filter(o => !seenOverdueRef.current.has(o.id));
+      if (newOverdue.length > 0) {
+        new Notification('Idea Inkjet ⚠️ งานเลยกำหนด', {
+          body: `มี ${newOverdue.length} งานที่เลยกำหนดแล้ว: ${newOverdue.slice(0,3).map(o => o.title).join(', ')}`,
+          icon: '/favicon.ico',
+        });
+        newOverdue.forEach(o => seenOverdueRef.current.add(o.id));
+      }
+      const today2 = ordNorm.filter(o => o.due_date === t && !['ชำระเงินแล้ว','ยกเลิก'].includes(o.status));
+      if (today2.length > 0 && seenOverdueRef.current.size === 0) {
+        new Notification('Idea Inkjet 🔔 นัดส่งวันนี้', {
+          body: `มี ${today2.length} งานที่นัดส่งวันนี้`,
+          icon: '/favicon.ico',
+        });
+      }
+    }
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    if (typeof window !== 'undefined') {
+      setNotifPerm(Notification.permission);
+    }
+  }, []);
+
+  // Auto-refresh every 60 seconds when logged in as owner
+  useEffect(() => {
+    if (role === 'owner') {
+      autoRefreshRef.current = setInterval(() => { load(); }, 60_000);
+    }
+    return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current); };
+  }, [role]);
 
   function doLogin(r: 'owner' | 'employee' | 'viewer', empId?: number, edit?: boolean) {
     setRole(r); setEditMode(!!edit);
@@ -247,6 +287,16 @@ export default function Home() {
   }
   function doLogout() {
     setRole(null); setSelectedEmpId(null); setEditMode(false);
+    if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+  }
+
+  async function requestNotifPermission() {
+    if (typeof window === 'undefined') return;
+    const perm = await Notification.requestPermission();
+    setNotifPerm(perm);
+    if (perm === 'granted') {
+      new Notification('Idea Inkjet ✓', { body: 'เปิดการแจ้งเตือนแล้ว' });
+    }
   }
 
   async function saveOwnerPin(pin: string): Promise<string> {
@@ -293,13 +343,14 @@ export default function Home() {
       new:         orders.filter(x => x.status === 'รับงานใหม่').length,
       design:      orders.filter(x => x.status === 'กำลังออกแบบ').length,
       production:  orders.filter(x => x.status === 'กำลังผลิต').length,
-      overdue:     active.filter(x => x.due_date && new Date(x.due_date) < new Date()).length,
+      overdue:     active.filter(x => x.due_date && x.due_date < today).length,
+      today:       active.filter(x => x.due_date === today).length,
       unpaid:      orders.filter(x => Number(x.balance) > 0).length,
       sales:       orders.reduce((s, x) => s + Number(x.price || 0), 0),
       collected:   orders.filter(x => x.status === 'ชำระเงินแล้ว').reduce((s, x) => s + Number(x.price || 0), 0),
       outstanding: orders.reduce((s, x) => s + Number(x.balance || 0), 0),
     };
-  }, [orders]);
+  }, [orders, today]);
 
   const todayOrders = useMemo(() =>
     orders.filter(x => x.due_date === today && !['ชำระเงินแล้ว','ยกเลิก'].includes(x.status)),
@@ -637,8 +688,9 @@ export default function Home() {
   // ── Tabs ───────────────────────────────────────────────────────────────────
   const TABS = [
     ['dashboard','Dashboard'], ['new-order','เปิดงานใหม่'],
-    ['orders','งานทั้งหมด'],   ['customers','ลูกค้า'],
-    ['employees','พนักงาน'],   ['analytics','วิเคราะห์'],
+    ['tracking','ติดตามงาน'],  ['orders','งานทั้งหมด'],
+    ['customers','ลูกค้า'],    ['employees','พนักงาน'],
+    ['analytics','วิเคราะห์'],
   ];
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -647,11 +699,66 @@ export default function Home() {
       <div className="top">
         <div>
           <div className="brand">Idea Inkjet Cloud V2</div>
-          <div className="sub">ระบบรับงาน + ติดตามสถานะงาน + Supabase Cloud</div>
+          <div className="sub">
+            ระบบรับงาน + ติดตามสถานะงาน
+            {lastRefresh && <span style={{ marginLeft:8, fontSize:11, color:'#9ca3af' }}>อัปเดต {lastRefresh.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit' })}</span>}
+          </div>
         </div>
-        <div style={{ display:'flex', gap:8 }}>
-          <button onClick={load} disabled={loading}>{loading ? 'กำลังโหลด...' : 'รีเฟรช'}</button>
-          <button className="btn2 btnSm" onClick={doLogout}>เปลี่ยนผู้ใช้</button>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          {/* Notification Bell */}
+          <div style={{ position:'relative' }}>
+            <button className="btnSm btn2" onClick={() => setNotifOpen(v => !v)} style={{ fontSize:16, padding:'6px 10px' }}>
+              🔔
+              {(stats.overdue + stats.today) > 0 && (
+                <span className="badge" style={{ position:'absolute', top:-4, right:-4, fontSize:10, padding:'1px 5px' }}>
+                  {stats.overdue + stats.today}
+                </span>
+              )}
+            </button>
+            {notifOpen && (
+              <div style={{ position:'absolute', right:0, top:'110%', width:300, background:'white',
+                border:'1px solid var(--line)', borderRadius:12, boxShadow:'0 8px 24px rgba(0,0,0,.12)',
+                zIndex:200, padding:14 }}>
+                <div style={{ fontWeight:700, fontSize:14, marginBottom:10 }}>การแจ้งเตือน</div>
+                {notifPerm !== 'granted' && (
+                  <button className="btnGreen btnSm" style={{ width:'100%', marginBottom:10, fontSize:12 }}
+                    onClick={requestNotifPermission}>
+                    เปิดแจ้งเตือนบราวเซอร์
+                  </button>
+                )}
+                {stats.overdue > 0 ? (
+                  <div>
+                    <div style={{ color:'#dc2626', fontWeight:600, fontSize:13, marginBottom:4 }}>⚠️ งานเลยกำหนด {stats.overdue} งาน</div>
+                    {orders.filter(o => !!o.due_date && o.due_date < today && !['ชำระเงินแล้ว','ยกเลิก'].includes(o.status))
+                      .slice(0,5).map(o => (
+                      <div key={o.id} style={{ fontSize:12, padding:'4px 0', borderBottom:'1px solid var(--line)', color:'#374151' }}>
+                        <b>{o.order_code || `JOB-${String(o.id).padStart(4,'0')}`}</b> {o.title}
+                        <div style={{ color:'#dc2626', fontSize:11 }}>กำหนด {fmtDate(o.due_date)} ({o.customers?.name || '-'})</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : <div style={{ fontSize:13, color:'#6b7280' }}>ไม่มีงานเลยกำหนด ✓</div>}
+                {stats.today > 0 && (
+                  <div style={{ marginTop:10 }}>
+                    <div style={{ color:'#c2410c', fontWeight:600, fontSize:13, marginBottom:4 }}>🔔 นัดส่งวันนี้ {stats.today} งาน</div>
+                    {orders.filter(o => o.due_date === today && !['ชำระเงินแล้ว','ยกเลิก'].includes(o.status))
+                      .slice(0,5).map(o => (
+                      <div key={o.id} style={{ fontSize:12, padding:'4px 0', borderBottom:'1px solid var(--line)', color:'#374151' }}>
+                        <b>{o.order_code || `JOB-${String(o.id).padStart(4,'0')}`}</b> {o.title}
+                        <div style={{ color:'#c2410c', fontSize:11 }}>{o.customers?.name || '-'}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button className="btn2 btnSm" style={{ width:'100%', marginTop:10, fontSize:12 }}
+                  onClick={() => { setNotifOpen(false); setTab('tracking'); }}>
+                  ดูบอร์ดติดตามงาน →
+                </button>
+              </div>
+            )}
+          </div>
+          <button onClick={load} disabled={loading} className="btnSm">{loading ? 'โหลด...' : 'รีเฟรช'}</button>
+          <button className="btn2 btnSm" onClick={doLogout}>ออกจากระบบ</button>
         </div>
       </div>
 
@@ -662,10 +769,16 @@ export default function Home() {
         {TABS.map(t => (
           <button key={t[0]} onClick={() => setTab(t[0])} className={`tab${tab === t[0] ? ' active' : ''}`}>
             {t[1]}
-            {t[0] === 'orders' && stats.overdue > 0 && <span className="badge">{stats.overdue}</span>}
+            {t[0] === 'tracking' && (stats.overdue + stats.today) > 0 && <span className="badge">{stats.overdue + stats.today}</span>}
+            {t[0] === 'orders'   && stats.overdue > 0 && <span className="badge">{stats.overdue}</span>}
           </button>
         ))}
       </div>
+
+      {/* ═══ TRACKING BOARD ══════════════════════════════════════════════════ */}
+      {tab === 'tracking' && (
+        <KanbanBoard orders={orders} today={today} employees={employees} onChangeStatus={changeStatus} />
+      )}
 
       {/* ═══ DASHBOARD ════════════════════════════════════════════════════════ */}
       {tab === 'dashboard' && (
@@ -1380,6 +1493,82 @@ function PrintSlip({ order }: { order: Order }) {
       </div>
       <div className="slipFooter">พิมพ์วันที่ {new Date().toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' })}</div>
     </div>
+  );
+}
+
+// ─── Kanban Board ────────────────────────────────────────────────────────────
+const KANBAN_COLS = [
+  'รับงานใหม่','กำลังออกแบบ','รอลูกค้าตรวจแบบ','ลูกค้าอนุมัติแล้ว',
+  'กำลังผลิต','ผลิตเสร็จ','แจ้งลูกค้ามารับ','ลูกค้ารับแล้ว',
+];
+function KanbanBoard({ orders, today, employees, onChangeStatus }: {
+  orders: Order[]; today: string; employees: Employee[];
+  onChangeStatus: (o: Order, s: string) => void;
+}) {
+  const [empFilter, setEmpFilter] = useState('');
+  const active = orders.filter(o => !['ชำระเงินแล้ว','ยกเลิก'].includes(o.status));
+  const filtered = empFilter
+    ? active.filter(o => [o.designer_id, o.production_id, o.receiver_id, o.measurer_id, o.delivery_id].includes(Number(empFilter)))
+    : active;
+
+  return (
+    <section>
+      <div style={{ display:'flex', gap:10, alignItems:'center', marginBottom:14, flexWrap:'wrap' }}>
+        <div style={{ fontWeight:700, fontSize:16 }}>บอร์ดติดตามงาน</div>
+        <select value={empFilter} onChange={e => setEmpFilter(e.target.value)}
+          style={{ fontSize:13, padding:'6px 10px', border:'1px solid var(--line)', borderRadius:8 }}>
+          <option value="">พนักงานทั้งหมด</option>
+          {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+        </select>
+        <span style={{ fontSize:12, color:'var(--muted)' }}>{filtered.length} งานที่กำลังดำเนินการ</span>
+      </div>
+      <div style={{ display:'flex', gap:10, overflowX:'auto', paddingBottom:12 }}>
+        {KANBAN_COLS.map(col => {
+          const colOrders = filtered.filter(o => o.status === col);
+          const [bg, color] = STATUS_STYLE[col] || ['#f3f4f6','#374151'];
+          return (
+            <div key={col} style={{ minWidth:220, flexShrink:0 }}>
+              <div style={{ background:bg, color, borderRadius:8, padding:'6px 12px', fontWeight:700, fontSize:13, marginBottom:8, display:'flex', justifyContent:'space-between' }}>
+                <span>{col}</span>
+                {colOrders.length > 0 && <span style={{ background:'rgba(0,0,0,.15)', borderRadius:999, padding:'0 7px', fontSize:12 }}>{colOrders.length}</span>}
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                {colOrders.length === 0 && (
+                  <div style={{ background:'white', border:'1px dashed var(--line)', borderRadius:10, padding:'20px 10px', textAlign:'center', color:'var(--muted)', fontSize:12 }}>ไม่มีงาน</div>
+                )}
+                {colOrders.map(o => {
+                  const isOverdue = !!o.due_date && o.due_date < today;
+                  const isToday   = o.due_date === today;
+                  const nextStatus = KANBAN_COLS[KANBAN_COLS.indexOf(col) + 1];
+                  return (
+                    <div key={o.id} style={{ background:'white', border:`1px solid ${isOverdue ? '#fca5a5' : 'var(--line)'}`, borderRadius:10, padding:'10px 12px', boxShadow:'0 1px 4px rgba(0,0,0,.06)' }}>
+                      <div style={{ fontSize:11, color:'var(--muted)', marginBottom:2 }}>{o.order_code || `JOB-${String(o.id).padStart(4,'0')}`}</div>
+                      <div style={{ fontWeight:700, fontSize:13, marginBottom:4, lineHeight:1.3 }}>{o.title}</div>
+                      <div style={{ fontSize:12, color:'var(--muted)' }}>{o.customers?.name || '-'}</div>
+                      {o.due_date && (
+                        <div style={{ fontSize:11, marginTop:4, fontWeight:600, color: isOverdue ? '#dc2626' : isToday ? '#c2410c' : '#6b7280' }}>
+                          {isOverdue ? '⚠️ เลยกำหนด ' : isToday ? '🔔 วันนี้ ' : '📅 '}{fmtDate(o.due_date)}
+                        </div>
+                      )}
+                      {Number(o.balance) > 0 && (
+                        <div style={{ fontSize:11, marginTop:2, color:'#dc2626' }}>ค้าง {fmtMoney(o.balance)} บ.</div>
+                      )}
+                      {nextStatus && (
+                        <button onClick={() => onChangeStatus(o, nextStatus)}
+                          style={{ marginTop:8, width:'100%', padding:'5px', fontSize:11, background:bg, color, border:`1px solid ${color}30`,
+                            borderRadius:6, cursor:'pointer', fontWeight:600 }}>
+                          → {nextStatus}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
