@@ -532,7 +532,7 @@ export default function Home() {
     </main>
   );
 
-  if (!role) return <RoleSelectScreen employees={employees} ownerPin={ownerPin} onSelect={doLogin} onSetOwnerPin={saveOwnerPin} />;
+  if (!role) return <RoleSelectScreen ownerPin={ownerPin} onSelect={doLogin} onSetOwnerPin={saveOwnerPin} />;
 
   if (role === 'viewer') return (
     <ViewerBoard orders={orders} employees={employees} message={message} error={error}
@@ -825,6 +825,7 @@ export default function Home() {
                     </div>
                     <div className="rowActions">
                       <button className="btn2 btnSm" onClick={() => openEditCustomer(c)}>แก้ไข</button>
+                      <CopyLinkBtn path={`/customer/${c.id}`} label="ลิงค์ลูกค้า" />
                       {cnt === 0 && <button className="btnRed btnSm" onClick={() => deleteCustomer(c.id)}>ลบ</button>}
                     </div>
                   </div>
@@ -883,6 +884,7 @@ export default function Home() {
                       <div className="rowActions">
                         <button className="btnSm" style={{ background:'#0891b2' }} onClick={() => setViewAsEmp(emp.id)}>ดูหน้าจอ</button>
                         <button className="btn2 btnSm" onClick={() => openEditEmployee(emp)}>แก้ไข/รหัส</button>
+                        <CopyLinkBtn path={`/emp/${emp.id}`} label="คัดลอกลิงค์" />
                         {(asDes + asPro) === 0 && <button className="btnRed btnSm" onClick={() => deleteEmployee(emp.id)}>ลบ</button>}
                       </div>
                     </div>
@@ -1280,23 +1282,35 @@ function PrintSlip({ order }: { order: Order }) {
   );
 }
 
-// ─── Role Selection Screen ────────────────────────────────────────────────────
-function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect, onSetOwnerPin }: {
-  employees: Employee[];
+// ─── Copy Link Button ─────────────────────────────────────────────────────────
+function CopyLinkBtn({ path, label }: { path: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    const url = `${window.location.origin}${path}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+  return (
+    <button className="btnSm" style={{ background: copied ? '#16a34a' : '#7c3aed', color: 'white' }} onClick={copy}>
+      {copied ? 'คัดลอกแล้ว ✓' : label}
+    </button>
+  );
+}
+
+// ─── Role Selection Screen (owner-only login) ─────────────────────────────────
+function RoleSelectScreen({ ownerPin: initialOwnerPin, onSelect, onSetOwnerPin }: {
   ownerPin: string;
   onSelect: (role: 'owner' | 'employee' | 'viewer', empId?: number, edit?: boolean) => void;
   onSetOwnerPin: (pin: string) => Promise<string>;
 }) {
   const [localOwnerPin, setLocalOwnerPin] = useState(initialOwnerPin);
-  const [screen,       setScreen]       = useState<'main' | 'ownerSetup'>(initialOwnerPin ? 'main' : 'ownerSetup');
-  const [ownerInput,   setOwnerInput]   = useState('');
-  const [setupPin1,    setSetupPin1]    = useState('');
-  const [setupPin2,    setSetupPin2]    = useState('');
-  const [empId,        setEmpId]        = useState('');
-  const [empInput,     setEmpInput]     = useState('');
-  const [empNewPin1,   setEmpNewPin1]   = useState('');
-  const [empNewPin2,   setEmpNewPin2]   = useState('');
-  const [loginErr,     setLoginErr]     = useState('');
+  const [screen,   setScreen]   = useState<'main' | 'ownerSetup'>(initialOwnerPin ? 'main' : 'ownerSetup');
+  const [ownerInput, setOwnerInput] = useState('');
+  const [setupPin1, setSetupPin1]   = useState('');
+  const [setupPin2, setSetupPin2]   = useState('');
+  const [loginErr, setLoginErr]     = useState('');
 
   function handleOwner() {
     if (ownerInput !== localOwnerPin) { setLoginErr('รหัสเจ้าของร้านไม่ถูกต้อง'); return; }
@@ -1313,37 +1327,11 @@ function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect, onSe
     setLoginErr('');
   }
 
-  function handleEmp() {
-    const emp = employees.find(e => String(e.id) === empId);
-    if (!emp) return;
-    setLoginErr('');
-    if (empInput === emp.pin) {
-      onSelect('employee', emp.id, true);
-    } else {
-      setLoginErr('รหัสไม่ถูกต้อง');
-    }
-  }
-
-  async function handleEmpSetup() {
-    const emp = employees.find(e => String(e.id) === empId);
-    if (!emp) return;
-    if (!empNewPin1) { setLoginErr('กรุณาตั้งรหัสผ่าน'); return; }
-    if (empNewPin1 !== empNewPin2) { setLoginErr('รหัสผ่านไม่ตรงกัน กรุณาลองใหม่'); return; }
-    const err = await savePin(emp.id, empNewPin1);
-    if (err) { setLoginErr('บันทึกไม่สำเร็จ: ' + err); return; }
-    setLoginErr('');
-    onSelect('employee', emp.id, true);
-  }
-
-  const selEmp = employees.find(e => String(e.id) === empId);
-  const empNeedsPin = !!selEmp?.pin;
-
   const centerLayout: React.CSSProperties = {
     minHeight:'100vh', display:'flex', alignItems:'center',
     justifyContent:'center', padding:'20px 16px',
   };
 
-  // ── First-time owner PIN setup ────────────────────────────────────────────
   if (screen === 'ownerSetup') {
     return (
       <main className="container" style={centerLayout}>
@@ -1373,7 +1361,6 @@ function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect, onSe
     );
   }
 
-  // ── Main login screen ─────────────────────────────────────────────────────
   return (
     <main className="container" style={centerLayout}>
       <div style={{ width:'100%', maxWidth:420 }}>
@@ -1384,8 +1371,7 @@ function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect, onSe
 
         {loginErr && <div className="notice error" style={{ textAlign:'center', marginBottom:12 }}>{loginErr}</div>}
 
-        {/* ── Owner ── */}
-        <div className="card" style={{ padding:'20px 24px', marginBottom:12, borderColor:'#bfdbfe' }}>
+        <div className="card" style={{ padding:'20px 24px', borderColor:'#bfdbfe' }}>
           <div style={{ fontWeight:700, marginBottom:12 }}>🏪 เจ้าของร้าน</div>
           <div style={{ display:'flex', gap:8 }}>
             <input type="password" placeholder="รหัสเจ้าของร้าน" autoFocus
@@ -1394,67 +1380,10 @@ function RoleSelectScreen({ employees, ownerPin: initialOwnerPin, onSelect, onSe
               style={{ flex:1 }} />
             <button onClick={handleOwner} style={{ width:90 }}>เข้าสู่ระบบ</button>
           </div>
-          <div className="sub" style={{ marginTop:6 }}>ดูภาพรวมทั้งหมด จัดการระบบ</div>
+          <div className="sub" style={{ marginTop:8, fontSize:12 }}>
+            พนักงานใช้ลิงค์ส่วนตัวของตัวเอง — ดูได้ในหน้าพนักงาน
+          </div>
         </div>
-
-        <div style={{ display:'flex', alignItems:'center', gap:8, margin:'16px 0', color:'var(--muted)', fontSize:13 }}>
-          <div style={{ flex:1, height:1, background:'var(--line)' }} />
-          หรือเข้าระบบพนักงาน
-          <div style={{ flex:1, height:1, background:'var(--line)' }} />
-        </div>
-
-        {/* ── Employee ── */}
-        <div className="card" style={{ padding:'20px 24px', marginBottom:12 }}>
-          <div style={{ fontWeight:700, marginBottom:12 }}>👷 พนักงาน</div>
-          <select value={empId} onChange={e => {
-            setEmpId(e.target.value);
-            setEmpInput(''); setEmpNewPin1(''); setEmpNewPin2(''); setLoginErr('');
-          }} style={{ width:'100%', marginBottom:10 }}>
-            <option value="">เลือกชื่อพนักงาน...</option>
-            {employees.map(e => (
-              <option key={e.id} value={e.id}>{e.name}{e.position ? ` — ${e.position}` : ''}</option>
-            ))}
-          </select>
-          {empId && (
-            empNeedsPin ? (
-              /* ── has PIN: enter it ── */
-              <div style={{ display:'flex', gap:8, marginBottom:10 }}>
-                <input type="password" placeholder="ใส่รหัสของคุณ" autoFocus
-                  value={empInput} onChange={e => { setEmpInput(e.target.value); setLoginErr(''); }}
-                  onKeyDown={e => e.key === 'Enter' && handleEmp()}
-                  style={{ flex:1 }} />
-                <button className="btnGreen" onClick={handleEmp} style={{ width:90 }}>เข้าสู่ระบบ</button>
-              </div>
-            ) : (
-              /* ── no PIN: force first-time setup ── */
-              <div style={{ marginBottom:10 }}>
-                <div className="notice" style={{ margin:'0 0 10px', fontSize:13 }}>
-                  ยังไม่มีรหัสผ่าน — กรุณาตั้งรหัสก่อนเข้าใช้งาน
-                </div>
-                <label>รหัสผ่านใหม่</label>
-                <input type="password" placeholder="ตั้งรหัสผ่าน" autoFocus
-                  value={empNewPin1} onChange={e => { setEmpNewPin1(e.target.value); setLoginErr(''); }}
-                  onKeyDown={e => e.key === 'Enter' && handleEmpSetup()}
-                  style={{ marginBottom:8 }} />
-                <label>ยืนยันรหัสผ่าน</label>
-                <input type="password" placeholder="ใส่รหัสผ่านอีกครั้ง"
-                  value={empNewPin2} onChange={e => { setEmpNewPin2(e.target.value); setLoginErr(''); }}
-                  onKeyDown={e => e.key === 'Enter' && handleEmpSetup()}
-                  style={{ marginBottom:10 }} />
-                <button className="btnGreen" style={{ width:'100%' }} onClick={handleEmpSetup}>
-                  ตั้งรหัสและเข้าสู่ระบบ
-                </button>
-              </div>
-            )
-          )}
-          {!empId && <div className="sub" style={{ fontSize:12 }}>เลือกชื่อแล้วใส่รหัสเพื่อเข้าสู่ระบบ</div>}
-        </div>
-
-        {/* ── Viewer ── */}
-        <button className="btn2" style={{ width:'100%' }} onClick={() => onSelect('viewer')}>
-          👁 ดูสถานะงานทั้งหมด (ไม่ต้องใส่รหัส)
-        </button>
-        <div className="sub" style={{ textAlign:'center', marginTop:6, fontSize:12 }}>ดูได้ทุกงาน แต่แก้ไขไม่ได้</div>
       </div>
     </main>
   );
