@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Customer  = { id: number; name: string; phone: string; line_id: string; contact_channel: string };
+type Customer  = { id: number; name: string; phone: string; line_id: string; contact_channel: string; address?: string; tax_id?: string };
 type Employee  = { id: number; name: string; position: string; role: string; pin?: string | null };
 type StatusLog = { id: number; order_id: number; old_status: string; new_status: string; note: string; created_at: string };
 type Order = {
@@ -123,7 +123,8 @@ export default function Home() {
   const [ownerPin, setOwnerPinState] = useState('');
   const [dbSetupNeeded, setDbSetupNeeded] = useState(false);
 
-  const [custForm, setCustForm]   = useState({ name:'', phone:'', line_id:'', contact_channel:'LINE' });
+  const [shopSettings, setShopSettings] = useState({ name:'Idea Inkjet', address:'', tax_id:'', phone:'' });
+  const [custForm, setCustForm]   = useState({ name:'', phone:'', line_id:'', contact_channel:'LINE', address:'', tax_id:'' });
   const [empForm,  setEmpForm]    = useState({ name:'', position:'', role:'graphic', pin:'' });
   const [orderForm, setOrderForm] = useState(EMPTY_ORDER);
 
@@ -142,9 +143,11 @@ export default function Home() {
   const [editForm,     setEditForm]     = useState(EMPTY_ORDER);
   const [payingOrder,  setPayingOrder]  = useState<Order | null>(null);
   const [payForm,      setPayForm]      = useState({ amount:'', method:'เงินสด' });
-  const [printOrder,   setPrintOrder]   = useState<Order | null>(null);
+  const [printOrder,    setPrintOrder]    = useState<Order | null>(null);
+  const [receiptOrder,  setReceiptOrder]  = useState<Order | null>(null);
+  const [receiptType,   setReceiptType]   = useState<'cash'|'tax'>('cash');
   const [editCust,     setEditCust]     = useState<Customer | null>(null);
-  const [editCustForm, setEditCustForm] = useState({ name:'', phone:'', line_id:'', contact_channel:'' });
+  const [editCustForm, setEditCustForm] = useState({ name:'', phone:'', line_id:'', contact_channel:'', address:'', tax_id:'' });
   const [editEmp,      setEditEmp]      = useState<Employee | null>(null);
   const [editEmpForm,  setEditEmpForm]  = useState({ name:'', position:'', role:'graphic', pin:'' });
 
@@ -188,9 +191,17 @@ export default function Home() {
     setOwnerPinState(ownerPinVal);
     localStorage.removeItem('iij_pins');
 
+    setShopSettings({
+      name:    settingsMap['shop_name']    || 'Idea Inkjet',
+      address: settingsMap['shop_address'] || '',
+      tax_id:  settingsMap['shop_tax_id']  || '',
+      phone:   settingsMap['shop_phone']   || '',
+    });
+
     const custNorm: Customer[] = (c.data || []).map((x: any) => ({
       id: x.id, name: x.name ?? x.customer_name ?? '',
       phone: x.phone ?? '', line_id: x.line_id ?? '', contact_channel: x.contact_channel ?? 'LINE',
+      address: x.address ?? '', tax_id: x.tax_id ?? '',
     }));
     const empNorm: Employee[] = (e.data || []).map((x: any) => ({
       id: x.id, name: x.name ?? x.employee_name ?? '',
@@ -237,6 +248,21 @@ export default function Home() {
       if (error) return error.message;
     }
     setOwnerPinState(pin);
+    return '';
+  }
+
+  async function saveShopSettings(s: typeof shopSettings): Promise<string> {
+    const pairs = [
+      { key:'shop_name',    value: s.name    },
+      { key:'shop_address', value: s.address },
+      { key:'shop_tax_id',  value: s.tax_id  },
+      { key:'shop_phone',   value: s.phone   },
+    ];
+    for (const p of pairs) {
+      const { error } = await supabase.from('app_settings').upsert(p);
+      if (error) return error.message;
+    }
+    setShopSettings(s);
     return '';
   }
 
@@ -337,9 +363,10 @@ export default function Home() {
     const res = await dbInsert('customers', {
       name: custForm.name, phone: custForm.phone,
       line_id: custForm.line_id, contact_channel: custForm.contact_channel,
+      address: custForm.address, tax_id: custForm.tax_id,
     });
     if (res.error) { setError(res.error.message); return; }
-    setCustForm({ name:'', phone:'', line_id:'', contact_channel:'LINE' });
+    setCustForm({ name:'', phone:'', line_id:'', contact_channel:'LINE', address:'', tax_id:'' });
     show('เพิ่มลูกค้าแล้ว'); load();
   }
 
@@ -420,7 +447,7 @@ export default function Home() {
 
   function openEditCustomer(c: Customer) {
     setEditCust(c);
-    setEditCustForm({ name: c.name, phone: c.phone || '', line_id: c.line_id || '', contact_channel: c.contact_channel || '' });
+    setEditCustForm({ name: c.name, phone: c.phone || '', line_id: c.line_id || '', contact_channel: c.contact_channel || '', address: c.address || '', tax_id: c.tax_id || '' });
   }
   async function updateCustomer(e: React.FormEvent) {
     e.preventDefault(); if (!editCust) return; setError('');
@@ -757,7 +784,9 @@ export default function Home() {
                               }}>รับเงิน</button>
                             )}
                             <button className="btn2"    onClick={() => openEditOrder(o)}>แก้ไข</button>
-                            <button className="btnPrint" onClick={() => setPrintOrder(o)}>พิมพ์</button>
+                            <button className="btnPrint" onClick={() => setPrintOrder(o)}>ใบส่งงาน</button>
+                            <button className="btnPrint" style={{ background:'#0369a1' }} onClick={() => { setReceiptOrder(o); setReceiptType('cash'); }}>ใบเสร็จ</button>
+                            <button className="btnPrint" style={{ background:'#7c3aed' }} onClick={() => { setReceiptOrder(o); setReceiptType('tax'); }}>กำกับภาษี</button>
                           </div>
                         </td>
                       </tr>
@@ -796,10 +825,12 @@ export default function Home() {
           <div className="card">
             <h2>เพิ่มลูกค้า</h2>
             <form className="form" onSubmit={addCustomer}>
-              <Field label="ชื่อ" full><input required value={custForm.name} onChange={e => setCustForm({...custForm, name:e.target.value})} /></Field>
+              <Field label="ชื่อ / บริษัท" full><input required value={custForm.name} onChange={e => setCustForm({...custForm, name:e.target.value})} /></Field>
               <Field label="เบอร์โทร"><input value={custForm.phone} onChange={e => setCustForm({...custForm, phone:e.target.value})} /></Field>
               <Field label="Line ID"><input value={custForm.line_id} onChange={e => setCustForm({...custForm, line_id:e.target.value})} /></Field>
               <Field label="ช่องทางติดต่อ" full><input value={custForm.contact_channel} onChange={e => setCustForm({...custForm, contact_channel:e.target.value})} /></Field>
+              <Field label="ที่อยู่ (สำหรับใบกำกับภาษี)" full><textarea value={custForm.address} onChange={e => setCustForm({...custForm, address:e.target.value})} style={{ minHeight:60 }} /></Field>
+              <Field label="เลขผู้เสียภาษี" full><input value={custForm.tax_id} onChange={e => setCustForm({...custForm, tax_id:e.target.value})} placeholder="13 หลัก (ไม่บังคับ)" /></Field>
               <button type="submit" className="full">บันทึกลูกค้า</button>
             </form>
           </div>
@@ -895,6 +926,7 @@ export default function Home() {
             </div>
           </div>
           <OwnerPinManager ownerPin={ownerPin} onSave={saveOwnerPin} />
+          <ShopSettingsManager settings={shopSettings} onSave={saveShopSettings} />
         </section>
       )}
 
@@ -1000,10 +1032,12 @@ export default function Home() {
       {editCust && (
         <Modal title="แก้ไขลูกค้า" onClose={() => setEditCust(null)}>
           <form className="form" onSubmit={updateCustomer}>
-            <Field label="ชื่อ" full><input required value={editCustForm.name} onChange={e => setEditCustForm({...editCustForm, name:e.target.value})} /></Field>
+            <Field label="ชื่อ / บริษัท" full><input required value={editCustForm.name} onChange={e => setEditCustForm({...editCustForm, name:e.target.value})} /></Field>
             <Field label="เบอร์โทร"><input value={editCustForm.phone} onChange={e => setEditCustForm({...editCustForm, phone:e.target.value})} /></Field>
             <Field label="Line ID"><input value={editCustForm.line_id} onChange={e => setEditCustForm({...editCustForm, line_id:e.target.value})} /></Field>
             <Field label="ช่องทางติดต่อ" full><input value={editCustForm.contact_channel} onChange={e => setEditCustForm({...editCustForm, contact_channel:e.target.value})} /></Field>
+            <Field label="ที่อยู่ (สำหรับใบกำกับภาษี)" full><textarea value={editCustForm.address} onChange={e => setEditCustForm({...editCustForm, address:e.target.value})} style={{ minHeight:60 }} /></Field>
+            <Field label="เลขผู้เสียภาษี" full><input value={editCustForm.tax_id} onChange={e => setEditCustForm({...editCustForm, tax_id:e.target.value})} placeholder="13 หลัก (ไม่บังคับ)" /></Field>
             <button type="submit" className="full">บันทึกแก้ไข</button>
           </form>
         </Modal>
@@ -1032,11 +1066,29 @@ export default function Home() {
       )}
 
       {printOrder && (
-        <Modal title="ใบรับงาน" onClose={() => setPrintOrder(null)}>
+        <Modal title="ใบส่งงาน / Work Order" onClose={() => setPrintOrder(null)}>
           <div className="printContent"><PrintSlip order={printOrder} /></div>
           <div className="printActions">
             <button className="btnGreen" onClick={() => window.print()}>พิมพ์ / Save PDF</button>
             <button className="btn2" onClick={() => setPrintOrder(null)}>ปิด</button>
+          </div>
+        </Modal>
+      )}
+
+      {receiptOrder && (
+        <Modal title={receiptType === 'tax' ? 'ใบกำกับภาษี' : 'ใบเสร็จรับเงิน'} onClose={() => setReceiptOrder(null)}>
+          <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+            <button className={receiptType==='cash' ? 'btnGreen btnSm' : 'btn2 btnSm'} onClick={() => setReceiptType('cash')}>ใบเสร็จเงินสด</button>
+            <button className={receiptType==='tax'  ? 'btnGreen btnSm' : 'btn2 btnSm'} style={{ background: receiptType==='tax' ? '#7c3aed' : undefined }} onClick={() => setReceiptType('tax')}>ใบกำกับภาษี</button>
+          </div>
+          <div className="printContent">
+            {receiptType === 'cash'
+              ? <CashReceipt order={receiptOrder} shop={shopSettings} />
+              : <TaxInvoice  order={receiptOrder} shop={shopSettings} />}
+          </div>
+          <div className="printActions">
+            <button className="btnGreen" onClick={() => window.print()}>พิมพ์ / Save PDF</button>
+            <button className="btn2" onClick={() => setReceiptOrder(null)}>ปิด</button>
           </div>
         </Modal>
       )}
@@ -1413,6 +1465,158 @@ function OwnerPinManager({ ownerPin, onSave }: { ownerPin: string; onSave: (p: s
         <button className="btnGreen btnSm" onClick={save} disabled={saving}>{saved ? 'บันทึกแล้ว ✓' : saving ? 'กำลังบันทึก...' : 'บันทึก'}</button>
         {ownerPin && <button className="btnRed btnSm" onClick={() => onSave('')} disabled={saving}>ลบรหัส</button>}
       </div>
+    </div>
+  );
+}
+
+// ─── Shop Settings Manager ────────────────────────────────────────────────────
+type ShopInfo = { name: string; address: string; tax_id: string; phone: string };
+function ShopSettingsManager({ settings, onSave }: { settings: ShopInfo; onSave: (s: ShopInfo) => Promise<string> }) {
+  const [form,   setForm]   = useState(settings);
+  const [saving, setSaving] = useState(false);
+  const [msg,    setMsg]    = useState('');
+  async function save() {
+    setSaving(true);
+    const err = await onSave(form);
+    setSaving(false);
+    setMsg(err ? 'บันทึกไม่สำเร็จ: ' + err : 'บันทึกแล้ว ✓');
+    setTimeout(() => setMsg(''), 2500);
+  }
+  return (
+    <div className="card" style={{ padding:'16px 20px', marginTop:12 }}>
+      <h3 style={{ margin:'0 0 12px', fontSize:15 }}>🏪 ข้อมูลร้าน (สำหรับออกใบเสร็จ)</h3>
+      {msg && <div className="notice" style={{ marginBottom:10, fontSize:13, background: msg.includes('ไม่สำเร็จ') ? '#fef3f2' : '#ecfdf3', color: msg.includes('ไม่สำเร็จ') ? '#b42318' : '#067647' }}>{msg}</div>}
+      <div className="form">
+        <div><label>ชื่อร้าน</label><input value={form.name} onChange={e => setForm({...form, name:e.target.value})} /></div>
+        <div><label>เบอร์โทรร้าน</label><input value={form.phone} onChange={e => setForm({...form, phone:e.target.value})} /></div>
+        <div style={{ gridColumn:'1/-1' }}><label>ที่อยู่ร้าน</label><textarea value={form.address} onChange={e => setForm({...form, address:e.target.value})} style={{ minHeight:60 }} /></div>
+        <div style={{ gridColumn:'1/-1' }}><label>เลขผู้เสียภาษีร้าน (13 หลัก)</label><input value={form.tax_id} onChange={e => setForm({...form, tax_id:e.target.value})} placeholder="สำหรับใบกำกับภาษี" /></div>
+      </div>
+      <button className="btnGreen btnSm" style={{ marginTop:10 }} onClick={save} disabled={saving}>
+        {saving ? 'กำลังบันทึก...' : 'บันทึกข้อมูลร้าน'}
+      </button>
+    </div>
+  );
+}
+
+// ─── Cash Receipt ─────────────────────────────────────────────────────────────
+function CashReceipt({ order, shop }: { order: Order; shop: ShopInfo }) {
+  const code     = orderCode(order);
+  const paid     = Number(order.price) - Number(order.balance);
+  const today    = new Date().toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
+  const receiptNo = `REC-${String(order.id).padStart(4,'0')}`;
+  return (
+    <div className="slip">
+      <div className="slipHeader">
+        <div className="slipShop">{shop.name}</div>
+        {shop.address && <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>{shop.address}</div>}
+        {shop.phone   && <div style={{ fontSize:12, color:'#6b7280' }}>โทร {shop.phone}</div>}
+        <div className="slipDocType" style={{ marginTop:6, fontSize:15, fontWeight:700 }}>ใบเสร็จรับเงิน / Cash Receipt</div>
+        <div className="slipCode">{receiptNo}</div>
+      </div>
+      <div className="slipSection">
+        <div className="slipRow"><span>วันที่</span><b>{today}</b></div>
+        <div className="slipRow"><span>เลขงาน</span><b>{code}</b></div>
+      </div>
+      <div className="slipSection">
+        <div className="slipSectionTitle">ลูกค้า</div>
+        <div className="slipRow"><span>ชื่อ</span><b>{order.customers?.name || '-'}</b></div>
+        {order.customers?.phone && <div className="slipRow"><span>โทร</span><b>{order.customers.phone}</b></div>}
+        {(order.customers as any)?.address && <div className="slipRow"><span>ที่อยู่</span><b style={{ textAlign:'right', flex:1, fontSize:12 }}>{(order.customers as any).address}</b></div>}
+      </div>
+      <div className="slipSection">
+        <div className="slipSectionTitle">รายการ</div>
+        <div className="slipRow"><span>ชื่องาน</span><b>{order.title}</b></div>
+        {order.order_type && <div className="slipRow"><span>ประเภท</span><b>{order.order_type}</b></div>}
+        {order.size       && <div className="slipRow"><span>ขนาด</span><b>{order.size}</b></div>}
+        <div className="slipRow"><span>จำนวน</span><b>{order.quantity || 1} ชิ้น</b></div>
+      </div>
+      <div className="slipSection slipPriceSection">
+        <div className="slipSectionTitle">การชำระเงิน</div>
+        <div className="slipRow"><span>ราคารวม</span><b>{fmtMoney(order.price)} บาท</b></div>
+        <div className="slipRow"><span>มัดจำ</span><b>{fmtMoney(order.deposit)} บาท</b></div>
+        <div className="slipRow slipBalance"><span>รับชำระ</span><b>{fmtMoney(paid)} บาท</b></div>
+        {Number(order.balance) > 0 && (
+          <div className="slipRow" style={{ color:'#dc2626' }}><span>ค้างชำระ</span><b>{fmtMoney(order.balance)} บาท</b></div>
+        )}
+      </div>
+      <div className="slipSignRow">
+        <div className="slipSign"><div className="signLine" /><span>ผู้รับเงิน</span></div>
+        <div className="slipSign"><div className="signLine" /><span>ลายเซ็นลูกค้า</span></div>
+      </div>
+      <div className="slipFooter">พิมพ์วันที่ {today}</div>
+    </div>
+  );
+}
+
+// ─── Tax Invoice ──────────────────────────────────────────────────────────────
+function TaxInvoice({ order, shop }: { order: Order; shop: ShopInfo }) {
+  const code     = orderCode(order);
+  const today    = new Date().toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
+  const invoiceNo = `INV-${String(order.id).padStart(4,'0')}`;
+  const price    = Number(order.price);
+  const beforeVat = Math.round(price / 1.07 * 100) / 100;
+  const vat      = Math.round((price - beforeVat) * 100) / 100;
+  const cust     = order.customers as any;
+  return (
+    <div className="slip">
+      <div className="slipHeader">
+        <div className="slipShop">{shop.name}</div>
+        {shop.address && <div style={{ fontSize:11, color:'#6b7280', marginTop:2, lineHeight:1.4 }}>{shop.address}</div>}
+        {shop.phone   && <div style={{ fontSize:12, color:'#6b7280' }}>โทร {shop.phone}</div>}
+        {shop.tax_id  && <div style={{ fontSize:12, color:'#6b7280' }}>เลขผู้เสียภาษี {shop.tax_id}</div>}
+        <div className="slipDocType" style={{ marginTop:6, fontSize:15, fontWeight:700 }}>ใบกำกับภาษี / Tax Invoice</div>
+        <div className="slipCode">{invoiceNo}</div>
+      </div>
+      <div className="slipSection">
+        <div className="slipRow"><span>วันที่</span><b>{today}</b></div>
+        <div className="slipRow"><span>เลขงาน</span><b>{code}</b></div>
+      </div>
+      <div className="slipSection">
+        <div className="slipSectionTitle">ผู้ซื้อ / Buyer</div>
+        <div className="slipRow"><span>ชื่อ / บริษัท</span><b>{cust?.name || '-'}</b></div>
+        {cust?.phone   && <div className="slipRow"><span>โทร</span><b>{cust.phone}</b></div>}
+        {cust?.address && <div className="slipRow"><span>ที่อยู่</span><b style={{ textAlign:'right', flex:1, fontSize:12 }}>{cust.address}</b></div>}
+        {cust?.tax_id  && <div className="slipRow"><span>เลขผู้เสียภาษี</span><b>{cust.tax_id}</b></div>}
+        {!cust?.tax_id && <div style={{ fontSize:11, color:'#9ca3af', marginTop:4 }}>* หากต้องการเลขผู้เสียภาษีลูกค้า แก้ไขได้ในหน้าลูกค้า</div>}
+      </div>
+      <div className="slipSection">
+        <div className="slipSectionTitle">รายการสินค้า / Services</div>
+        <table style={{ width:'100%', fontSize:13, borderCollapse:'collapse', marginTop:4 }}>
+          <thead>
+            <tr style={{ borderBottom:'1px solid #000' }}>
+              <th style={{ textAlign:'left', paddingBottom:3 }}>รายการ</th>
+              <th style={{ textAlign:'center' }}>จำนวน</th>
+              <th style={{ textAlign:'right' }}>ราคา</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={{ paddingTop:4 }}>
+                {order.title}
+                {order.order_type && <div style={{ fontSize:11, color:'#6b7280' }}>{order.order_type}{order.size ? ` · ${order.size}` : ''}</div>}
+              </td>
+              <td style={{ textAlign:'center' }}>{order.quantity || 1}</td>
+              <td style={{ textAlign:'right' }}>{fmtMoney(beforeVat)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div className="slipSection slipPriceSection">
+        <div className="slipRow"><span>ราคาก่อนภาษี</span><b>{fmtMoney(beforeVat)} บาท</b></div>
+        <div className="slipRow"><span>ภาษีมูลค่าเพิ่ม 7%</span><b>{fmtMoney(vat)} บาท</b></div>
+        <div className="slipRow slipBalance"><span>ยอดรวมทั้งสิ้น</span><b>{fmtMoney(price)} บาท</b></div>
+        <div className="slipRow" style={{ marginTop:8, paddingTop:8, borderTop:'1px dashed #ccc' }}><span>มัดจำ</span><b>{fmtMoney(order.deposit)} บาท</b></div>
+        {Number(order.balance) > 0
+          ? <div className="slipRow" style={{ color:'#dc2626' }}><span>ค้างชำระ</span><b>{fmtMoney(order.balance)} บาท</b></div>
+          : <div className="slipRow" style={{ color:'#16a34a' }}><span>ชำระครบแล้ว</span><b>✓</b></div>}
+      </div>
+      {!shop.tax_id && <div style={{ fontSize:11, color:'#9ca3af', textAlign:'center', marginTop:8 }}>* กรอกเลขผู้เสียภาษีร้านในหน้าพนักงาน → ข้อมูลร้าน</div>}
+      <div className="slipSignRow">
+        <div className="slipSign"><div className="signLine" /><span>ผู้ออกใบกำกับภาษี</span></div>
+        <div className="slipSign"><div className="signLine" /><span>ลายเซ็นลูกค้า</span></div>
+      </div>
+      <div className="slipFooter">พิมพ์วันที่ {today}</div>
     </div>
   );
 }
