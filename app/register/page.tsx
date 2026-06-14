@@ -7,6 +7,14 @@ type Step = 'form' | 'success';
 
 const CONTACT_OPTIONS = ['LINE', 'โทรศัพท์', 'Facebook', 'อื่นๆ'];
 
+function applyMap(data: Record<string, string>, map: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = { ...data };
+  for (const [k, v] of Object.entries(map)) {
+    if (k in out) { out[v] = out[k]; delete out[k]; }
+  }
+  return out;
+}
+
 export default function RegisterPage() {
   const [step, setStep]     = useState<Step>('form');
   const [loading, setLoading] = useState(false);
@@ -28,7 +36,6 @@ export default function RegisterPage() {
     if (!form.name.trim()) { setError('กรุณากรอกชื่อ'); return; }
     setError(''); setLoading(true);
 
-    // Try insert — strip unknown columns automatically if DB doesn't have them yet
     let data: Record<string, string> = {
       name: form.name.trim(),
       phone: form.phone.trim(),
@@ -38,17 +45,39 @@ export default function RegisterPage() {
       tax_id: form.tax_id.trim(),
     };
 
-    let res = await supabase.from('customers').insert(data).select('id').single();
+    // Column alias map: if DB uses prefixed names (customer_name, customer_phone etc.)
+    const colMap: Record<string, string> = {};
 
-    // Strip unknown columns and retry (handles DB without address/tax_id columns)
-    while (res.error && res.error.message.includes("Could not find the '")) {
-      const m = res.error.message.match(/Could not find the '([^']+)' column/);
-      if (!m) break;
-      const col = m[1];
-      if (!(col in data)) break;
-      const { [col]: _removed, ...rest } = data as any;
-      data = rest;
-      res = await supabase.from('customers').insert(data).select('id').single();
+    let res = await supabase.from('customers').insert(applyMap(data, colMap)).select('id').single();
+
+    for (let i = 0; i < 10 && res.error; i++) {
+      const msg = res.error.message;
+
+      // "null value in column 'customer_name'" → remap name → customer_name
+      const nullM = msg.match(/null value in column "([^"]+)"/);
+      if (nullM) {
+        const dbCol = nullM[1];
+        const short = dbCol.startsWith('customer_') ? dbCol.slice('customer_'.length) : null;
+        if (short && short in data) { colMap[short] = dbCol; }
+        else break;
+        res = await supabase.from('customers').insert(applyMap(data, colMap)).select('id').single();
+        continue;
+      }
+
+      // "Could not find the 'address' column" → strip unknown column
+      const unknownM = msg.match(/Could not find the '([^']+)' column/);
+      if (unknownM) {
+        const col = unknownM[1];
+        const mapped = applyMap(data, colMap);
+        if (!(col in mapped)) break;
+        const { [col]: _r, ...rest } = mapped as any;
+        data = Object.fromEntries(
+          Object.entries(data).filter(([k]) => applyMap({ [k]: '' }, colMap)[k] !== col)
+        ) as Record<string, string>;
+        res = await supabase.from('customers').insert(rest).select('id').single();
+        continue;
+      }
+      break;
     }
 
     setLoading(false);
