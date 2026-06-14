@@ -465,6 +465,7 @@ export default function Home() {
 
   async function addOrder(e: React.FormEvent) {
     e.preventDefault(); setError('');
+    if (!orderForm.customer_id) { setError('กรุณาเลือกลูกค้า'); return; }
     const price   = Number(orderForm.price   || 0);
     const deposit = Number(orderForm.deposit || 0);
     const res = await dbInsert('orders', {
@@ -506,6 +507,7 @@ export default function Home() {
   async function updateOrder(e: React.FormEvent) {
     e.preventDefault();
     if (!editingOrder) return; setError('');
+    if (!editForm.customer_id) { setError('กรุณาเลือกลูกค้า'); return; }
     const price   = Number(editForm.price   || 0);
     const deposit = Number(editForm.deposit || 0);
     const priceChanged   = price   !== Number(editingOrder.price);
@@ -1258,6 +1260,102 @@ export default function Home() {
   );
 }
 
+// ─── CustomerPicker ───────────────────────────────────────────────────────────
+function CustomerPicker({ customers, value, onChange }: {
+  customers: Customer[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const [query, setQuery]   = useState('');
+  const [open, setOpen]     = useState(false);
+  const containerRef        = useRef<HTMLDivElement>(null);
+  const inputRef            = useRef<HTMLInputElement>(null);
+
+  const selected = customers.find(c => String(c.id) === value);
+
+  const filtered = customers.filter(c => {
+    if (!query) return true;
+    const q = query.toLowerCase();
+    return c.name.toLowerCase().includes(q) || (c.phone || '').includes(q);
+  });
+
+  useEffect(() => {
+    const handle = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false); setQuery('');
+      }
+    };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, []);
+
+  const displayValue = open ? query : (selected ? `${selected.name}${selected.phone ? ` — ${selected.phone}` : ''}` : query);
+
+  function handleFocus() {
+    setOpen(true);
+    if (selected) setQuery('');
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setQuery(e.target.value);
+    setOpen(true);
+    if (value) onChange('');
+  }
+
+  function handleSelect(c: Customer) {
+    onChange(String(c.id));
+    setQuery(''); setOpen(false);
+  }
+
+  function handleClear() {
+    onChange(''); setQuery(''); setOpen(true);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative' }}>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input
+          ref={inputRef}
+          value={displayValue}
+          onChange={handleChange}
+          onFocus={handleFocus}
+          placeholder="พิมพ์ชื่อหรือเบอร์โทร..."
+          style={{ flex: 1 }}
+          autoComplete="off"
+        />
+        {selected && (
+          <button type="button" onClick={handleClear}
+            style={{ padding: '0 12px', background: '#f3f4f6', color: '#374151', borderRadius: 8, border: '1px solid #d1d5db', fontWeight: 600 }}>
+            ✕
+          </button>
+        )}
+      </div>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+          background: 'white', border: '1px solid #d1d5db', borderRadius: 10,
+          boxShadow: '0 6px 20px rgba(0,0,0,.12)', zIndex: 200,
+          maxHeight: 240, overflowY: 'auto',
+        }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: '12px 14px', color: '#9ca3af', fontSize: 13 }}>ไม่พบลูกค้า</div>
+          ) : filtered.map(c => (
+            <div key={c.id}
+              onMouseDown={e => { e.preventDefault(); handleSelect(c); }}
+              style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', fontSize: 14,
+                       background: String(c.id) === value ? '#eff6ff' : undefined }}
+            >
+              <span style={{ fontWeight: 600 }}>{c.name}</span>
+              {c.phone && <span style={{ color: '#6b7280', marginLeft: 10, fontSize: 13 }}>{c.phone}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── OrderForm ────────────────────────────────────────────────────────────────
 type OrderFormProps = {
   form: typeof EMPTY_ORDER; setForm: (f: typeof EMPTY_ORDER) => void;
@@ -1269,10 +1367,7 @@ function OrderForm({ form, setForm, customers, employees, onSubmit, submitLabel 
   return (
     <form className="form" onSubmit={onSubmit}>
       <Field label="ลูกค้า" full>
-        <select required value={form.customer_id} onChange={e => setForm({...form, customer_id:e.target.value})}>
-          <option value="">เลือกลูกค้า</option>
-          {customers.map(c => <option key={c.id} value={c.id}>{c.name} — {c.phone || 'ไม่มีเบอร์'}</option>)}
-        </select>
+        <CustomerPicker customers={customers} value={form.customer_id} onChange={id => setForm({...form, customer_id:id})} />
       </Field>
       <Field label="ชื่องาน" full><input required value={form.title} onChange={e => setForm({...form, title:e.target.value})} /></Field>
       <Field label="ประเภทงาน"><input value={form.order_type} onChange={e => setForm({...form, order_type:e.target.value})} /></Field>
