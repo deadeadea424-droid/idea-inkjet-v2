@@ -80,22 +80,40 @@ function tryLearn(table: string, msg: string): boolean {
   return true;
 }
 
+function tryStripCol(data: Record<string, any>, msg: string): Record<string, any> | null {
+  const m = msg.match(/Could not find the '([^']+)' column/);
+  if (!m) return null;
+  const col = m[1];
+  if (!(col in data)) return null;
+  const out = { ...data };
+  delete out[col];
+  return out;
+}
+
 async function dbInsert(table: string, data: Record<string, any>) {
-  const res = await supabase.from(table).insert(applyMap(table, data)).select().single();
-  if (!res.error) return res;
-  if (tryLearn(table, res.error.message)) {
-    return supabase.from(table).insert(applyMap(table, data)).select().single();
+  let d = applyMap(table, data);
+  for (let i = 0; i < 8; i++) {
+    const res = await supabase.from(table).insert(d).select().single();
+    if (!res.error) return res;
+    if (tryLearn(table, res.error.message)) { d = applyMap(table, d); continue; }
+    const stripped = tryStripCol(d, res.error.message);
+    if (stripped) { d = stripped; continue; }
+    return res;
   }
-  return res;
+  return supabase.from(table).insert(d).select().single();
 }
 
 async function dbUpdate(table: string, id: number, data: Record<string, any>) {
-  const res = await supabase.from(table).update(applyMap(table, data)).eq('id', id);
-  if (!res.error) return res;
-  if (tryLearn(table, res.error.message)) {
-    return supabase.from(table).update(applyMap(table, data)).eq('id', id);
+  let d = applyMap(table, data);
+  for (let i = 0; i < 8; i++) {
+    const res = await supabase.from(table).update(d).eq('id', id);
+    if (!res.error) return res;
+    if (tryLearn(table, res.error.message)) { d = applyMap(table, d); continue; }
+    const stripped = tryStripCol(d, res.error.message);
+    if (stripped) { d = stripped; continue; }
+    return res;
   }
-  return res;
+  return supabase.from(table).update(d).eq('id', id);
 }
 
 // ─── PIN helpers (DB-based via app_settings) ─────────────────────────────────
