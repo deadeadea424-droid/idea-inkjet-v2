@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Customer  = { id: number; name: string; phone: string; line_id: string; contact_channel: string; address?: string; tax_id?: string };
 type Employee  = { id: number; name: string; position: string; role: string; pin?: string | null };
-type StatusLog = { id: number; order_id: number; old_status: string; new_status: string; note: string; created_at: string };
+type StatusLog = { id: number; order_id: number; old_status: string; new_status: string; note: string; changed_by?: string; created_at: string };
 type Order = {
   id: number; order_code: string; title: string; status: string;
   due_date: string; price: number; deposit: number; balance: number;
@@ -463,7 +463,7 @@ export default function Home() {
     });
     if (res.error) { setError(res.error.message); return; }
     await supabase.from('order_status_logs').insert({
-      order_id: res.data?.id, old_status: '', new_status: 'รับงานใหม่', note: 'เปิดงานใหม่',
+      order_id: res.data?.id, old_status: '', new_status: 'รับงานใหม่', note: 'เปิดงานใหม่', changed_by: 'เจ้าของร้าน',
     });
     setOrderForm(EMPTY_ORDER); show('เปิดงานใหม่แล้ว'); setTab('orders'); load();
   }
@@ -559,11 +559,14 @@ export default function Home() {
   // ── Order actions ──────────────────────────────────────────────────────────
   async function changeStatus(o: Order, newStatus: string) {
     setError('');
+    const changedBy = role === 'owner'
+      ? 'เจ้าของร้าน'
+      : (employees.find(e => e.id === selectedEmpId)?.name ?? 'พนักงาน');
     const res = await supabase.from('orders')
       .update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', o.id);
     if (res.error) { setError(res.error.message); return; }
     await supabase.from('order_status_logs').insert({
-      order_id: o.id, old_status: o.status, new_status: newStatus, note: 'เปลี่ยนสถานะ',
+      order_id: o.id, old_status: o.status, new_status: newStatus, note: '', changed_by: changedBy,
     });
     show('เปลี่ยนสถานะแล้ว'); load();
   }
@@ -586,7 +589,7 @@ export default function Home() {
     if (newBalance === 0 && newStatus !== payingOrder.status) {
       await supabase.from('order_status_logs').insert({
         order_id: payingOrder.id, old_status: payingOrder.status, new_status: 'ชำระเงินแล้ว',
-        note: `รับเงิน ${fmtMoney(amount)} บาท ครบ`,
+        note: `รับเงิน ${fmtMoney(amount)} บาท ครบ`, changed_by: 'เจ้าของร้าน',
       });
     }
     setPayingOrder(null); setPayForm({ amount:'', method:'เงินสด' });
@@ -1436,6 +1439,7 @@ function LogTimeline({ logs, loading, logsFor, orderId }: { logs: StatusLog[]; l
             <span className="logStatus">
               {l.old_status ? <>{l.old_status} → </> : null}<b>{l.new_status}</b>
             </span>
+            {l.changed_by && <span className="logNote"> · โดย {l.changed_by}</span>}
             {l.note && <span className="logNote">{l.note}</span>}
             <span className="logTime">
               {new Date(l.created_at).toLocaleString('th-TH', { dateStyle:'short', timeStyle:'short' })}
