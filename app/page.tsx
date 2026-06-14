@@ -629,8 +629,7 @@ export default function Home() {
     const changedBy = role === 'owner'
       ? 'เจ้าของร้าน'
       : (employees.find(e => e.id === selectedEmpId)?.name ?? 'พนักงาน');
-    const res = await supabase.from('orders')
-      .update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', o.id);
+    const res = await dbUpdate('orders', o.id, { status: newStatus, updated_at: new Date().toISOString() });
     if (res.error) { setError(res.error.message); return; }
     const logRes = await supabase.from('order_status_logs').insert({
       order_id: o.id, old_status: o.status, new_status: newStatus, note: '', changed_by: changedBy,
@@ -667,9 +666,9 @@ export default function Home() {
     }
 
     // 2. อัปเดตยอดค้างและสถานะ
-    const upd = await supabase.from('orders').update({
+    const upd = await dbUpdate('orders', payingOrder.id, {
       balance: newBalance, status: newStatus, updated_at: new Date().toISOString(),
-    }).eq('id', payingOrder.id);
+    });
     if (upd.error) { setError(upd.error.message); return; }
 
     // 3. บันทึก log เสมอ (ทั้งชำระบางส่วนและครบ)
