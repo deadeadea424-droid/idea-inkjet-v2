@@ -744,7 +744,7 @@ export default function Home() {
         message={message} error={error} loading={loading} editMode={editMode}
         onLogout={doLogout} onLoad={load} onChangeStatus={changeStatus}
         onLoadLogs={loadOrderLogs} orderLogs={orderLogs}
-        logsLoading={logsLoading} logsFor={logsFor} today={today}
+        logsLoading={logsLoading} logsFor={logsFor} logsTableReady={logsTableReady} today={today}
       />
     );
   }
@@ -770,7 +770,7 @@ export default function Home() {
           message={message} error={error} loading={loading} editMode={true}
           onLogout={() => setViewAsEmp(null)} onLoad={load} onChangeStatus={changeStatus}
           onLoadLogs={loadOrderLogs} orderLogs={orderLogs}
-          logsLoading={logsLoading} logsFor={logsFor} today={today}
+          logsLoading={logsLoading} logsFor={logsFor} logsTableReady={logsTableReady} today={today}
         />
       </div>
     );
@@ -1060,7 +1060,12 @@ export default function Home() {
                               {o.finishing  && <span className="detailFull"><b>ฟินิชชิ่ง:</b> {o.finishing}</span>}
                               {o.detail     && <span className="detailFull"><b>หมายเหตุ:</b> {o.detail}</span>}
                             </div>
-                            <LogTimeline logs={orderLogs} loading={logsLoading} logsFor={logsFor} orderId={o.id} />
+                            <div style={{ marginTop:10 }}>
+                              {logsFor !== o.id
+                                ? <button className="btnSm btn2" onClick={() => loadOrderLogs(o.id)}>📋 ดูประวัติสถานะ</button>
+                                : <LogTimeline logs={orderLogs} loading={logsLoading} logsFor={logsFor} orderId={o.id} tableReady={logsTableReady} />
+                              }
+                            </div>
                           </td>
                         </tr>
                       )}
@@ -1846,9 +1851,21 @@ function StatusDistribution({ orders }: { orders: Order[] }) {
 }
 
 // ─── Order status timeline ────────────────────────────────────────────────────
-function LogTimeline({ logs, loading, logsFor, orderId }: { logs: StatusLog[]; loading: boolean; logsFor: number|null; orderId: number }) {
-  if (loading && logsFor === orderId) return <div className="logLine sub">กำลังโหลดประวัติ...</div>;
-  if (logsFor !== orderId || !logs.length) return null;
+function LogTimeline({ logs, loading, logsFor, orderId, tableReady }: {
+  logs: StatusLog[]; loading: boolean; logsFor: number|null; orderId: number; tableReady?: boolean;
+}) {
+  if (logsFor !== orderId) return null;
+  if (loading) return (
+    <div style={{ marginTop:10, fontSize:13, color:'var(--muted)' }}>กำลังโหลดประวัติ...</div>
+  );
+  if (tableReady === false) return (
+    <div style={{ marginTop:10, background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:8, padding:'10px 12px', fontSize:12, color:'#92400e' }}>
+      ⚠️ ยังไม่มีตาราง <code>order_status_logs</code> — รัน SQL ด้านบนก่อนครับ
+    </div>
+  );
+  if (!logs.length) return (
+    <div style={{ marginTop:10, fontSize:12, color:'var(--muted)', fontStyle:'italic' }}>ยังไม่มีประวัติการเปลี่ยนสถานะ</div>
+  );
   return (
     <div className="logTimeline">
       <div className="logLabel">ประวัติการเปลี่ยนสถานะ</div>
@@ -2295,9 +2312,10 @@ type EmpViewProps = {
   onChangeStatus: (o: Order, s: string) => void;
   onLoadLogs: (id: number) => void;
   orderLogs: StatusLog[]; logsLoading: boolean; logsFor: number | null;
+  logsTableReady: boolean;
   today: string;
 };
-function EmployeeView({ emp, orders, editMode, message, error, loading, onLogout, onLoad, onChangeStatus, onLoadLogs, orderLogs, logsLoading, logsFor, today }: EmpViewProps) {
+function EmployeeView({ emp, orders, editMode, message, error, loading, onLogout, onLoad, onChangeStatus, onLoadLogs, orderLogs, logsLoading, logsFor, logsTableReady, today }: EmpViewProps) {
   const [filter, setFilter]       = useState<'active' | 'all' | 'done'>('active');
   const [expandedId, setExpanded] = useState<number | null>(null);
   const [showPin,    setShowPin]  = useState(false);
@@ -2463,7 +2481,7 @@ function EmployeeView({ emp, orders, editMode, message, error, loading, onLogout
                       {o.order_type && <span><b>ประเภท:</b> {o.order_type}</span>}
                       {o.material   && <span><b>วัสดุ:</b> {o.material}</span>}
                     </div>
-                    <LogTimeline logs={orderLogs} loading={logsLoading} logsFor={logsFor} orderId={o.id} />
+                    <LogTimeline logs={orderLogs} loading={logsLoading} logsFor={logsFor} orderId={o.id} tableReady={logsTableReady} />
                   </div>
                 )}
               </div>
