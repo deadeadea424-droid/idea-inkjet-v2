@@ -8,7 +8,7 @@ export const todayTH = () =>
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type Customer  = { id: number; name: string; phone: string; line_id: string; contact_channel: string };
 export type Employee  = { id: number; name: string; position: string; role: string; pin?: string | null };
-export type StatusLog = { id: number; order_id: number; old_status: string; new_status: string; note: string; created_at: string };
+export type StatusLog = { id: number; order_id: number; old_status: string; new_status: string; note: string; changed_by?: string; created_at: string };
 export type Order = {
   id: number; order_code: string; title: string; status: string;
   due_date: string; price: number; deposit: number; balance: number;

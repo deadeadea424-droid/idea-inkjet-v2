@@ -29,6 +29,7 @@ function LogTimeline({ logs, loading, logsFor, orderId }: { logs: StatusLog[]; l
             <span style={{ color: '#374151' }}>
               {l.old_status ? <>{l.old_status} → </> : null}<b>{l.new_status}</b>
             </span>
+            {l.changed_by && <span style={{ marginLeft: 6, color: '#6b7280' }}>· โดย {l.changed_by}</span>}
             {l.note && <span style={{ marginLeft: 6, color: '#6b7280' }}>{l.note}</span>}
             <div style={{ color: '#9ca3af', fontSize: 11 }}>
               {new Date(l.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
@@ -78,7 +79,7 @@ function EmployeeView({ emp, orders, onLogout, onLoad, loading }: {
   async function changeStatus(order: Order, newStatus: string) {
     setChangingId(order.id);
     const oldStatus = order.status;
-    await supabase.from('order_status_logs').insert({ order_id: order.id, old_status: oldStatus, new_status: newStatus, note: '' });
+    await supabase.from('order_status_logs').insert({ order_id: order.id, old_status: oldStatus, new_status: newStatus, note: '', changed_by: emp.name });
     await supabase.from('orders').update({ status: newStatus }).eq('id', order.id);
     setStatusMsg('อัปเดตสถานะแล้ว ✓');
     setChangingId(null);
