@@ -170,6 +170,7 @@ export default function Home() {
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsFor,     setLogsFor]     = useState<number | null>(null);
   const [logsTableReady, setLogsTableReady] = useState(true);
+  const [logsTableError, setLogsTableError] = useState('');
 
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [editForm,     setEditForm]     = useState(EMPTY_ORDER);
@@ -187,12 +188,20 @@ export default function Home() {
   async function load() {
     setLoading(true); setError('');
     // Load main data + all settings in one shot
-    const [c, e, o, allSettings] = await Promise.all([
+    const [c, e, o, allSettings, logsCheck] = await Promise.all([
       supabase.from('customers').select('*').order('id', { ascending: false }),
       supabase.from('employees').select('*').order('id', { ascending: false }),
       supabase.from('orders').select('*').order('id', { ascending: false }),
       supabase.from('app_settings').select('key, value'),
+      supabase.from('order_status_logs').select('id').limit(1),
     ]);
+    if (logsCheck.error) {
+      setLogsTableReady(false);
+      setLogsTableError(logsCheck.error.message);
+    } else {
+      setLogsTableReady(true);
+      setLogsTableError('');
+    }
     setLoading(false); setInitialized(true);
 
     // If app_settings table is missing, show setup screen and stop
@@ -353,10 +362,12 @@ export default function Home() {
     setLogsLoading(true); setLogsFor(orderId);
     const { data, error } = await supabase.from('order_status_logs')
       .select('*').eq('order_id', orderId).order('created_at', { ascending: true });
-    if (error && (error.message.includes('does not exist') || error.message.includes('relation'))) {
+    if (error) {
       setLogsTableReady(false);
+      setLogsTableError(error.message);
     } else {
       setLogsTableReady(true);
+      setLogsTableError('');
     }
     setOrderLogs(data || []); setLogsLoading(false);
   }
@@ -625,11 +636,11 @@ export default function Home() {
       order_id: o.id, old_status: o.status, new_status: newStatus, note: '', changed_by: changedBy,
     });
     if (logRes.error) {
-      if (logRes.error.message.includes('does not exist') || logRes.error.message.includes('relation')) {
-        setLogsTableReady(false);
-      }
+      setLogsTableReady(false);
+      setLogsTableError(logRes.error.message);
     } else {
       setLogsTableReady(true);
+      setLogsTableError('');
       if (logsFor === o.id) loadOrderLogs(o.id);
     }
     show('เปลี่ยนสถานะแล้ว'); load();
@@ -670,11 +681,11 @@ export default function Home() {
       changed_by: payForm.received_by,
     });
     if (logRes2.error) {
-      if (logRes2.error.message.includes('does not exist') || logRes2.error.message.includes('relation')) {
-        setLogsTableReady(false);
-      }
+      setLogsTableReady(false);
+      setLogsTableError(logRes2.error.message);
     } else {
       setLogsTableReady(true);
+      setLogsTableError('');
       if (logsFor === payingOrder.id) loadOrderLogs(payingOrder.id);
     }
 
@@ -870,9 +881,14 @@ export default function Home() {
       {/* ═══ LOGS TABLE SETUP NOTICE ════════════════════════════════════════ */}
       {!logsTableReady && (
         <div style={{ background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:12, padding:'14px 16px', marginBottom:14 }}>
-          <div style={{ fontWeight:700, color:'#c2410c', marginBottom:6 }}>⚠️ ยังไม่มีตารางประวัติสถานะ</div>
+          <div style={{ fontWeight:700, color:'#c2410c', marginBottom:6 }}>⚠️ ไม่สามารถบันทึกประวัติสถานะได้</div>
+          {logsTableError && (
+            <div style={{ background:'#fef2f2', border:'1px solid #fecaca', borderRadius:6, padding:'6px 10px', fontFamily:'monospace', fontSize:11, color:'#991b1b', marginBottom:8, wordBreak:'break-all' }}>
+              Error: {logsTableError}
+            </div>
+          )}
           <div style={{ fontSize:13, color:'#78350f', marginBottom:10 }}>
-            กรุณารัน SQL นี้ใน <b>Supabase → SQL Editor</b> เพื่อเปิดใช้งานประวัติการเปลี่ยนสถานะ:
+            กรุณารัน SQL นี้ใน <b>Supabase → SQL Editor</b> เพื่อสร้างตารางและปิด RLS:
           </div>
           <div style={{ background:'#1e293b', color:'#86efac', borderRadius:8, padding:'12px 14px', fontFamily:'monospace', fontSize:12, marginBottom:10, userSelect:'all', overflowX:'auto' }}>
             CREATE TABLE IF NOT EXISTS order_status_logs (<br/>
