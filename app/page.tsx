@@ -418,6 +418,25 @@ export default function Home() {
     return Object.values(map).sort((a, b) => b.total - a.total).slice(0, 10);
   }, [orders]);
 
+  const unpaidByCustomer = useMemo(() => {
+    const map: Record<number, {
+      customer: Customer; orders: Order[];
+      totalBalance: number; oldestDue: string | null;
+    }> = {};
+    orders.forEach(o => {
+      if (Number(o.balance) <= 0) return;
+      const cust = customers.find(c => c.id === o.customer_id);
+      if (!cust) return;
+      if (!map[cust.id]) map[cust.id] = { customer: cust, orders: [], totalBalance: 0, oldestDue: null };
+      map[cust.id].orders.push(o);
+      map[cust.id].totalBalance += Number(o.balance);
+      if (o.due_date && (!map[cust.id].oldestDue || o.due_date < map[cust.id].oldestDue!)) {
+        map[cust.id].oldestDue = o.due_date;
+      }
+    });
+    return Object.values(map).sort((a, b) => b.totalBalance - a.totalBalance);
+  }, [orders, customers]);
+
   // ── Toast ──────────────────────────────────────────────────────────────────
   function show(msg: string) { setMessage(msg); setTimeout(() => setMessage(''), 2500); }
 
@@ -717,8 +736,8 @@ export default function Home() {
   const TABS = [
     ['dashboard','Dashboard'], ['new-order','เปิดงานใหม่'],
     ['tracking','ติดตามงาน'],  ['orders','งานทั้งหมด'],
-    ['customers','ลูกค้า'],    ['employees','พนักงาน'],
-    ['analytics','วิเคราะห์'],
+    ['unpaid','ค้างชำระ'],     ['customers','ลูกค้า'],
+    ['employees','พนักงาน'],   ['analytics','วิเคราะห์'],
   ];
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -799,6 +818,7 @@ export default function Home() {
             {t[1]}
             {t[0] === 'tracking' && (stats.overdue + stats.today) > 0 && <span className="badge">{stats.overdue + stats.today}</span>}
             {t[0] === 'orders'   && stats.overdue > 0 && <span className="badge">{stats.overdue}</span>}
+            {t[0] === 'unpaid'   && unpaidByCustomer.length > 0 && <span className="badge">{unpaidByCustomer.length}</span>}
           </button>
         ))}
       </div>
@@ -1163,6 +1183,120 @@ export default function Home() {
               <SummaryCard label="งานค้างส่ง"        value={`${stats.overdue} งาน`} color={stats.overdue > 0 ? '#dc2626' : undefined} />
             </div>
           </div>
+        </section>
+      )}
+
+      {tab === 'unpaid' && (
+        <section>
+          {/* Summary */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:20 }}>
+            {[
+              ['ลูกค้าค้างชำระ', `${unpaidByCustomer.length} ราย`, '#dc2626'],
+              ['งานค้างชำระ',    `${unpaidByCustomer.reduce((s,x)=>s+x.orders.length,0)} งาน`, '#c2410c'],
+              ['ยอดรวมทั้งหมด',  `${fmtMoney(unpaidByCustomer.reduce((s,x)=>s+x.totalBalance,0))} ฿`, '#7c3aed'],
+            ].map(([label, val, color]) => (
+              <div key={label as string} className="card" style={{ textAlign:'center', padding:'14px 10px' }}>
+                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>{label}</div>
+                <div style={{ fontSize:20, fontWeight:800, color: color as string }}>{val}</div>
+              </div>
+            ))}
+          </div>
+
+          {unpaidByCustomer.length === 0 ? (
+            <div className="card" style={{ textAlign:'center', padding:48, color:'var(--muted)' }}>
+              <div style={{ fontSize:40, marginBottom:12 }}>🎉</div>
+              <div style={{ fontWeight:600 }}>ไม่มียอดค้างชำระ</div>
+              <div style={{ fontSize:13, marginTop:4 }}>ลูกค้าทุกคนชำระครบแล้ว</div>
+            </div>
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+              {unpaidByCustomer.map(({ customer, orders: custOrders, totalBalance, oldestDue }) => {
+                const isOverdue = !!oldestDue && oldestDue < today;
+                const reminderText = [
+                  `สวัสดีครับ คุณ${customer.name} 🙏`,
+                  `ทางร้าน Idea Inkjet ขอแจ้งเตือนยอดค้างชำระดังนี้ครับ`,
+                  ``,
+                  ...custOrders.map(o => `• ${orderCode(o)} ${o.title}\n  ยอดค้าง: ${fmtMoney(Number(o.balance))} บาท${o.due_date ? ` (นัดส่ง ${fmtDate(o.due_date)})` : ''}`),
+                  ``,
+                  `ยอดรวมค้างชำระ: ${fmtMoney(totalBalance)} บาท`,
+                  `กรุณาติดต่อชำระเงินที่ร้านหรือโอนมาได้เลยนะครับ`,
+                  `ขอบคุณมากครับ 🙏 Idea Inkjet`,
+                ].join('\n');
+
+                return (
+                  <div key={customer.id} className="card"
+                    style={{ border: isOverdue ? '1px solid #fca5a5' : '1px solid var(--line)', padding:'16px 18px' }}>
+                    {/* Customer header */}
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:8, marginBottom:12 }}>
+                      <div>
+                        <div style={{ fontWeight:700, fontSize:16, color:'#1e293b' }}>{customer.name}</div>
+                        <div style={{ fontSize:13, color:'var(--muted)', marginTop:2 }}>
+                          {customer.phone && <span>📞 {customer.phone}</span>}
+                          {customer.line_id && <span style={{ marginLeft:10 }}>LINE: {customer.line_id}</span>}
+                        </div>
+                      </div>
+                      <div style={{ textAlign:'right' }}>
+                        <div style={{ fontSize:20, fontWeight:800, color:'#dc2626' }}>{fmtMoney(totalBalance)} ฿</div>
+                        {isOverdue && oldestDue && (
+                          <div style={{ fontSize:11, color:'#dc2626', marginTop:2 }}>⚠️ เลยกำหนด {fmtDate(oldestDue)}</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Orders list */}
+                    <div style={{ borderTop:'1px solid #f3f4f6', paddingTop:10, marginBottom:12 }}>
+                      {custOrders.map(o => (
+                        <div key={o.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                          padding:'7px 0', borderBottom:'1px dashed #f3f4f6', gap:8, flexWrap:'wrap' }}>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <span style={{ fontSize:12, color:'var(--muted)' }}>{orderCode(o)}</span>
+                            <span style={{ marginLeft:8, fontSize:14, fontWeight:600 }}>{o.title}</span>
+                            {o.due_date && (
+                              <span style={{ marginLeft:8, fontSize:12,
+                                color: o.due_date < today ? '#dc2626' : 'var(--muted)' }}>
+                                นัดส่ง {fmtDate(o.due_date)}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                            <b style={{ color:'#dc2626', whiteSpace:'nowrap' }}>{fmtMoney(Number(o.balance))} ฿</b>
+                            <button className="btnSm btnGreen"
+                              onClick={() => { setPayingOrder(o); setPayForm({ amount: String(o.balance), method:'เงินสด' }); }}>
+                              รับชำระ
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Actions */}
+                    <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                      <button className="btnSm btnGreen"
+                        onClick={() => {
+                          const biggest = [...custOrders].sort((a,b)=>Number(b.balance)-Number(a.balance))[0];
+                          setPayingOrder(biggest);
+                          setPayForm({ amount: String(biggest.balance), method:'เงินสด' });
+                        }}>
+                        💰 รับชำระทั้งหมด
+                      </button>
+                      <button className="btnSm btn2"
+                        onClick={() => navigator.clipboard?.writeText(reminderText).then(() => show('คัดลอกข้อความแล้ว'))}>
+                        📋 คัดลอกข้อความแจ้งเตือน
+                      </button>
+                      {customer.line_id && (
+                        <a href={`https://line.me/R/ti/p/${customer.line_id}`} target="_blank" rel="noopener noreferrer"
+                          style={{ textDecoration:'none' }}>
+                          <button className="btnSm" style={{ background:'#16a34a' }}>
+                            💬 เปิด LINE
+                          </button>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       )}
 
