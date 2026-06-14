@@ -247,7 +247,7 @@ export default function Home() {
 
     // Browser notifications for overdue + today
     if (typeof window !== 'undefined' && Notification.permission === 'granted') {
-      const t = new Date().toISOString().split('T')[0];
+      const t = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
       const overdue = ordNorm.filter(o => !!o.due_date && o.due_date < t && !['ชำระเงินแล้ว','ยกเลิก'].includes(o.status));
       const newOverdue = overdue.filter(o => !seenOverdueRef.current.has(o.id));
       if (newOverdue.length > 0) {
@@ -334,7 +334,7 @@ export default function Home() {
   }
 
   // ── Computed ──────────────────────────────────────────────────────────────────
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
 
   const stats = useMemo(() => {
     const active = orders.filter(x => !['ชำระเงินแล้ว','ยกเลิก'].includes(x.status));
@@ -367,7 +367,7 @@ export default function Home() {
       if (dateTo   && o.created_at && o.created_at.slice(0,10) > dateTo)   return false;
       const active = !['ชำระเงินแล้ว','ยกเลิก'].includes(o.status);
       if (quickFilter === 'today'      && !(o.due_date === today && active)) return false;
-      if (quickFilter === 'overdue'    && !(o.due_date && new Date(o.due_date) < new Date() && active)) return false;
+      if (quickFilter === 'overdue'    && !(o.due_date && o.due_date < today && active)) return false;
       if (quickFilter === 'unpaid'     && !(Number(o.balance) > 0)) return false;
       if (quickFilter === 'production' && o.status !== 'กำลังผลิต') return false;
       return true;
@@ -886,7 +886,7 @@ export default function Home() {
               </thead>
               <tbody>
                 {filtered.map(o => {
-                  const isOverdue  = !!o.due_date && new Date(o.due_date) < new Date() && !['ชำระเงินแล้ว','ยกเลิก'].includes(o.status);
+                  const isOverdue  = !!o.due_date && o.due_date < today && !['ชำระเงินแล้ว','ยกเลิก'].includes(o.status);
                   const isToday    = o.due_date === today && !['ชำระเงินแล้ว','ยกเลิก'].includes(o.status);
                   const isExpanded = expandedId === o.id;
                   return (
@@ -1890,7 +1890,7 @@ function EmployeeView({ emp, orders, editMode, message, error, loading, onLogout
   const active = orders.filter(o => !DONE.includes(o.status));
   const done   = orders.filter(o =>  DONE.includes(o.status));
   const dueToday = active.filter(o => o.due_date === today).length;
-  const overdue  = active.filter(o => o.due_date && new Date(o.due_date) < new Date() && o.due_date !== today).length;
+  const overdue  = active.filter(o => o.due_date && o.due_date < today && o.due_date !== today).length;
   const displayed = filter === 'active' ? active : filter === 'done' ? done : orders;
 
   return (
@@ -1980,7 +1980,7 @@ function EmployeeView({ emp, orders, editMode, message, error, loading, onLogout
           const isDes      = o.designer_id    === emp.id;
           const isPro      = o.production_id  === emp.id;
           const isDel      = o.delivery_id    === emp.id;
-          const isOverdue  = !!o.due_date && new Date(o.due_date) < new Date() && !DONE.includes(o.status);
+          const isOverdue  = !!o.due_date && o.due_date < today && !DONE.includes(o.status);
           const isToday    = o.due_date === today && !DONE.includes(o.status);
           const isExpanded = expandedId === o.id;
           return (
@@ -2103,7 +2103,7 @@ function ViewerBoard({ orders, employees, message, error, loading, onLogout, onL
         <div className="card stat" style={{ padding:'12px 14px' }}>
           <span className="sub" style={{ fontSize:11 }}>เลยกำหนด</span>
           <b style={{ fontSize:22, color:'#dc2626' }}>
-            {active.filter(o => o.due_date && new Date(o.due_date) < new Date()).length}
+            {active.filter(o => o.due_date && o.due_date < today).length}
           </b>
         </div>
       </div>
@@ -2122,7 +2122,7 @@ function ViewerBoard({ orders, employees, message, error, loading, onLogout, onL
           {filtered.length === 0
             ? <p className="sub">ไม่พบงานที่ตรงกัน</p>
             : filtered.map(o => {
-              const isOverdue = !!o.due_date && new Date(o.due_date) < new Date() && !DONE.includes(o.status);
+              const isOverdue = !!o.due_date && o.due_date < today && !DONE.includes(o.status);
               const isToday   = o.due_date === today;
               return (
                 <div key={o.id} style={{ display:'flex', gap:10, padding:'8px 0', borderBottom:'1px solid var(--line)', flexWrap:'wrap', alignItems:'center' }}>
@@ -2152,7 +2152,7 @@ function ViewerBoard({ orders, employees, message, error, loading, onLogout, onL
                 <span style={{ fontWeight:700, fontSize:14 }}>{byStatus[s].length} งาน</span>
               </div>
               {byStatus[s].map(o => {
-                const isOverdue = !!o.due_date && new Date(o.due_date) < new Date();
+                const isOverdue = !!o.due_date && o.due_date < today;
                 const isToday   = o.due_date === today;
                 const des = employees.find(e => e.id === o.designer_id);
                 const pro = employees.find(e => e.id === o.production_id);

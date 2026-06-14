@@ -60,12 +60,12 @@ function EmployeeView({ emp, orders, onLogout, onLoad, loading }: {
   const [statusMsg, setStatusMsg] = useState('');
   const [changingId, setChangingId] = useState<number | null>(null);
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
   const DONE  = ['ชำระเงินแล้ว', 'ยกเลิก'];
   const active = orders.filter(o => !DONE.includes(o.status));
   const done   = orders.filter(o =>  DONE.includes(o.status));
   const dueToday = active.filter(o => o.due_date === today).length;
-  const overdue  = active.filter(o => o.due_date && new Date(o.due_date) < new Date() && o.due_date !== today).length;
+  const overdue  = active.filter(o => o.due_date && o.due_date < today && o.due_date !== today).length;
   const displayed = filter === 'active' ? active : filter === 'done' ? done : orders;
 
   async function loadLogs(orderId: number) {
@@ -188,7 +188,7 @@ function EmployeeView({ emp, orders, onLogout, onLoad, loading }: {
         {displayed.map(o => {
           const isDes     = o.designer_id   === emp.id;
           const isPro     = o.production_id === emp.id;
-          const isOverdue = !!o.due_date && new Date(o.due_date) < new Date() && !DONE.includes(o.status);
+          const isOverdue = !!o.due_date && o.due_date < today && !DONE.includes(o.status);
           const isToday   = o.due_date === today && !DONE.includes(o.status);
           const isExp     = expandedId === o.id;
           return (

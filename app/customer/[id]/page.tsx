@@ -73,7 +73,7 @@ export default function CustomerPage() {
   const DONE   = ['ชำระเงินแล้ว', 'ยกเลิก'];
   const active = orders.filter(o => !DONE.includes(o.status));
   const done   = orders.filter(o =>  DONE.includes(o.status));
-  const today  = new Date().toISOString().split('T')[0];
+  const today  = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
 
   return (
     <main style={{ maxWidth: 600, margin: '0 auto', padding: '20px 16px 60px', background: '#f8fafc', minHeight: '100vh' }}>
@@ -127,7 +127,7 @@ export default function CustomerPage() {
           <div style={{ fontWeight: 700, fontSize: 14, color: '#374151', marginBottom: 8 }}>งานที่กำลังดำเนินการ</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {active.map(o => {
-              const isOverdue = !!o.due_date && new Date(o.due_date) < new Date() && o.due_date !== today;
+              const isOverdue = !!o.due_date && o.due_date < today;
               const isToday   = o.due_date === today;
               const isExp     = expanded === o.id;
               return (
