@@ -14,6 +14,7 @@ export type Order = {
   due_date: string; price: number; deposit: number; balance: number;
   customer_id: number; designer_id: number | null; production_id: number | null;
   detail: string; order_type: string; size: string; quantity: number; material: string;
+  file_status: string; delivery_method: string; finishing: string;
   created_at: string;
   customers?: Customer; designer?: Employee; production?: Employee;
 };
