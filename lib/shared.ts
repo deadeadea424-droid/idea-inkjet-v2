@@ -1,5 +1,10 @@
 import { supabase } from './supabase';
 
+// ─── Timezone helper (Thailand UTC+7) ────────────────────────────────────────
+// sv-SE locale produces YYYY-MM-DD format needed for date comparisons
+export const todayTH = () =>
+  new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type Customer  = { id: number; name: string; phone: string; line_id: string; contact_channel: string };
 export type Employee  = { id: number; name: string; position: string; role: string; pin?: string | null };
