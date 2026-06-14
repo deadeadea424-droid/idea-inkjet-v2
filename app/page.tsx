@@ -169,6 +169,7 @@ export default function Home() {
   const [orderLogs,   setOrderLogs]   = useState<StatusLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsFor,     setLogsFor]     = useState<number | null>(null);
+  const [logsTableReady, setLogsTableReady] = useState(true);
 
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [editForm,     setEditForm]     = useState(EMPTY_ORDER);
@@ -350,8 +351,13 @@ export default function Home() {
 
   async function loadOrderLogs(orderId: number) {
     setLogsLoading(true); setLogsFor(orderId);
-    const { data } = await supabase.from('order_status_logs')
+    const { data, error } = await supabase.from('order_status_logs')
       .select('*').eq('order_id', orderId).order('created_at', { ascending: true });
+    if (error && (error.message.includes('does not exist') || error.message.includes('relation'))) {
+      setLogsTableReady(false);
+    } else {
+      setLogsTableReady(true);
+    }
     setOrderLogs(data || []); setLogsLoading(false);
   }
 
@@ -615,9 +621,17 @@ export default function Home() {
     const res = await supabase.from('orders')
       .update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', o.id);
     if (res.error) { setError(res.error.message); return; }
-    await supabase.from('order_status_logs').insert({
+    const logRes = await supabase.from('order_status_logs').insert({
       order_id: o.id, old_status: o.status, new_status: newStatus, note: '', changed_by: changedBy,
     });
+    if (logRes.error) {
+      if (logRes.error.message.includes('does not exist') || logRes.error.message.includes('relation')) {
+        setLogsTableReady(false);
+      }
+    } else {
+      setLogsTableReady(true);
+      if (logsFor === o.id) loadOrderLogs(o.id);
+    }
     show('เปลี่ยนสถานะแล้ว'); load();
   }
 
@@ -648,16 +662,26 @@ export default function Home() {
     if (upd.error) { setError(upd.error.message); return; }
 
     // 3. บันทึก log เสมอ (ทั้งชำระบางส่วนและครบ)
-    await supabase.from('order_status_logs').insert({
+    const logRes2 = await supabase.from('order_status_logs').insert({
       order_id: payingOrder.id,
       old_status: payingOrder.status,
       new_status: newStatus,
       note,
       changed_by: payForm.received_by,
     });
+    if (logRes2.error) {
+      if (logRes2.error.message.includes('does not exist') || logRes2.error.message.includes('relation')) {
+        setLogsTableReady(false);
+      }
+    } else {
+      setLogsTableReady(true);
+      if (logsFor === payingOrder.id) loadOrderLogs(payingOrder.id);
+    }
 
+    const paidId = payingOrder.id;
     setPayingOrder(null); setPayForm({ amount:'', method:'เงินสด', received_by:'เจ้าของร้าน' });
     show('บันทึกรับเงินแล้ว'); load();
+    if (logsFor === paidId) loadOrderLogs(paidId);
   }
 
   // ── Role gates ────────────────────────────────────────────────────────────
@@ -842,6 +866,32 @@ export default function Home() {
           </button>
         ))}
       </div>
+
+      {/* ═══ LOGS TABLE SETUP NOTICE ════════════════════════════════════════ */}
+      {!logsTableReady && (
+        <div style={{ background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:12, padding:'14px 16px', marginBottom:14 }}>
+          <div style={{ fontWeight:700, color:'#c2410c', marginBottom:6 }}>⚠️ ยังไม่มีตารางประวัติสถานะ</div>
+          <div style={{ fontSize:13, color:'#78350f', marginBottom:10 }}>
+            กรุณารัน SQL นี้ใน <b>Supabase → SQL Editor</b> เพื่อเปิดใช้งานประวัติการเปลี่ยนสถานะ:
+          </div>
+          <div style={{ background:'#1e293b', color:'#86efac', borderRadius:8, padding:'12px 14px', fontFamily:'monospace', fontSize:12, marginBottom:10, userSelect:'all', overflowX:'auto' }}>
+            CREATE TABLE IF NOT EXISTS order_status_logs (<br/>
+            &nbsp;&nbsp;id BIGSERIAL PRIMARY KEY,<br/>
+            &nbsp;&nbsp;order_id BIGINT NOT NULL,<br/>
+            &nbsp;&nbsp;old_status TEXT DEFAULT '',<br/>
+            &nbsp;&nbsp;new_status TEXT NOT NULL,<br/>
+            &nbsp;&nbsp;note TEXT DEFAULT '',<br/>
+            &nbsp;&nbsp;changed_by TEXT DEFAULT '',<br/>
+            &nbsp;&nbsp;created_at TIMESTAMPTZ DEFAULT NOW()<br/>
+            );<br/>
+            ALTER TABLE order_status_logs DISABLE ROW LEVEL SECURITY;
+          </div>
+          <button className="btnSm" style={{ background:'#c2410c', color:'white' }}
+            onClick={() => { setLogsTableReady(true); }}>
+            ✓ สร้างแล้ว — ปิดแจ้งเตือน
+          </button>
+        </div>
+      )}
 
       {/* ═══ TRACKING BOARD ══════════════════════════════════════════════════ */}
       {tab === 'tracking' && (
