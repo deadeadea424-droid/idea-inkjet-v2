@@ -14,6 +14,7 @@ type Order = {
   designer_id:  number | null; production_id: number | null;
   receiver_id:  number | null; measurer_id:   number | null; delivery_id: number | null;
   detail: string; order_type: string; size: string; quantity: number; material: string;
+  file_status: string; delivery_method: string; finishing: string;
   created_at: string;
   customers?: Customer; designer?: Employee; production?: Employee;
   receiver?: Employee; measurer?: Employee; delivery?: Employee;
@@ -45,6 +46,7 @@ const EMPTY_ORDER = {
   size:'', quantity:'1', material:'', price:'0', deposit:'0',
   due_date:'', designer_id:'', production_id:'',
   receiver_id:'', measurer_id:'', delivery_id:'',
+  file_status:'มีไฟล์แล้ว', delivery_method:'รับเองที่ร้าน', finishing:'',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -501,6 +503,9 @@ export default function Home() {
       receiver_id:   o.receiver_id   ? String(o.receiver_id)   : '',
       measurer_id:   o.measurer_id   ? String(o.measurer_id)   : '',
       delivery_id:   o.delivery_id   ? String(o.delivery_id)   : '',
+      file_status:      o.file_status      || 'มีไฟล์แล้ว',
+      delivery_method:  o.delivery_method  || 'รับเองที่ร้าน',
+      finishing:        o.finishing        || '',
     });
   }
 
@@ -954,12 +959,15 @@ export default function Home() {
                               <span><b>จำนวน:</b> {o.quantity || 1} ชิ้น</span>
                               <span><b>วัสดุ:</b> {o.material || '-'}</span>
                               <span><b>มัดจำ:</b> {fmtMoney(o.deposit)} บาท</span>
+                              {o.file_status     && <span><b>ไฟล์งาน:</b> {o.file_status}</span>}
+                              {o.delivery_method && <span><b>การรับงาน:</b> {o.delivery_method}</span>}
                               {o.receiver   && <span><b>รับงาน:</b> {o.receiver.name}</span>}
                               {o.measurer   && <span><b>วัดป้าย:</b> {o.measurer.name}</span>}
                               {o.designer   && <span><b>ออกแบบ:</b> {o.designer.name}</span>}
                               {o.production && <span><b>ผลิต:</b> {o.production.name}</span>}
                               {o.delivery   && <span><b>ส่งงาน:</b> {o.delivery.name}</span>}
-                              {o.detail && <span className="detailFull"><b>หมายเหตุ:</b> {o.detail}</span>}
+                              {o.finishing  && <span className="detailFull"><b>ฟินิชชิ่ง:</b> {o.finishing}</span>}
+                              {o.detail     && <span className="detailFull"><b>หมายเหตุ:</b> {o.detail}</span>}
                             </div>
                             <LogTimeline logs={orderLogs} loading={logsLoading} logsFor={logsFor} orderId={o.id} />
                           </td>
@@ -1375,6 +1383,23 @@ function OrderForm({ form, setForm, customers, employees, onSubmit, submitLabel 
       <Field label="ขนาด"><input value={form.size} onChange={e => setForm({...form, size:e.target.value})} placeholder="เช่น 120x240 ซม." /></Field>
       <Field label="จำนวน"><input type="number" min="1" value={form.quantity} onChange={e => setForm({...form, quantity:e.target.value})} /></Field>
       <Field label="วัสดุ" full><input value={form.material} onChange={e => setForm({...form, material:e.target.value})} /></Field>
+      <Field label="ไฟล์งาน">
+        <select value={form.file_status} onChange={e => setForm({...form, file_status:e.target.value})}>
+          <option>มีไฟล์แล้ว</option>
+          <option>ต้องออกแบบ</option>
+          <option>แก้ไขไฟล์</option>
+        </select>
+      </Field>
+      <Field label="การรับงาน">
+        <select value={form.delivery_method} onChange={e => setForm({...form, delivery_method:e.target.value})}>
+          <option>รับเองที่ร้าน</option>
+          <option>จัดส่ง</option>
+          <option>ติดตั้งเอง</option>
+        </select>
+      </Field>
+      <Field label="การตกแต่ง / ฟินิชชิ่ง" full>
+        <input value={form.finishing} onChange={e => setForm({...form, finishing:e.target.value})} placeholder="เช่น รูเจาะ, เชือกร้อย, ลามิเนต, เย็บตะเข็บ" />
+      </Field>
       <Field label="ราคา (บาท)"><input type="number" min="0" value={form.price} onChange={e => setForm({...form, price:e.target.value})} /></Field>
       <Field label="มัดจำ (บาท)"><input type="number" min="0" value={form.deposit} onChange={e => setForm({...form, deposit:e.target.value})} /></Field>
       {Number(form.price) > 0 && (
@@ -1590,7 +1615,10 @@ function PrintSlip({ order }: { order: Order }) {
         {order.order_type && <div className="slipRow"><span>ประเภท</span><b>{order.order_type}</b></div>}
         {order.size       && <div className="slipRow"><span>ขนาด</span><b>{order.size}</b></div>}
         <div className="slipRow"><span>จำนวน</span><b>{order.quantity || 1} ชิ้น</b></div>
-        {order.material   && <div className="slipRow"><span>วัสดุ</span><b>{order.material}</b></div>}
+        {order.material        && <div className="slipRow"><span>วัสดุ</span><b>{order.material}</b></div>}
+        {order.file_status     && <div className="slipRow"><span>ไฟล์งาน</span><b>{order.file_status}</b></div>}
+        {order.finishing       && <div className="slipRow"><span>ฟินิชชิ่ง</span><b>{order.finishing}</b></div>}
+        {order.delivery_method && <div className="slipRow"><span>การรับงาน</span><b>{order.delivery_method}</b></div>}
         {order.receiver   && <div className="slipRow"><span>รับงาน</span><b>{order.receiver.name}</b></div>}
         {order.measurer   && <div className="slipRow"><span>วัดป้าย</span><b>{order.measurer.name}</b></div>}
         {order.designer   && <div className="slipRow"><span>ออกแบบ</span><b>{order.designer.name}</b></div>}
