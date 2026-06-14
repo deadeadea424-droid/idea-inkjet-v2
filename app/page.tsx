@@ -989,7 +989,10 @@ export default function Home() {
       {tab === 'customers' && (
         <section className="two">
           <div className="card">
-            <h2>เพิ่มลูกค้า</h2>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+              <h2 style={{ margin:0 }}>เพิ่มลูกค้า</h2>
+              <CopyLinkBtn path="/register" label="ลิงค์ลงทะเบียนลูกค้า" color="#7c3aed" />
+            </div>
             <form className="form" onSubmit={addCustomer}>
               <Field label="ชื่อ / บริษัท" full><input required value={custForm.name} onChange={e => setCustForm({...custForm, name:e.target.value})} /></Field>
               <Field label="เบอร์โทร"><input value={custForm.phone} onChange={e => setCustForm({...custForm, phone:e.target.value})} /></Field>
@@ -1718,7 +1721,7 @@ function KanbanBoard({ orders, today, employees, onChangeStatus }: {
 }
 
 // ─── Copy Link Button ─────────────────────────────────────────────────────────
-function CopyLinkBtn({ path, label }: { path: string; label: string }) {
+function CopyLinkBtn({ path, label, color = '#7c3aed' }: { path: string; label: string; color?: string }) {
   const [copied, setCopied] = useState(false);
   function copy() {
     const url = `${window.location.origin}${path}`;
@@ -1728,7 +1731,7 @@ function CopyLinkBtn({ path, label }: { path: string; label: string }) {
     });
   }
   return (
-    <button className="btnSm" style={{ background: copied ? '#16a34a' : '#7c3aed', color: 'white' }} onClick={copy}>
+    <button className="btnSm" style={{ background: copied ? '#16a34a' : color, color: 'white' }} onClick={copy}>
       {copied ? 'คัดลอกแล้ว ✓' : label}
     </button>
   );
