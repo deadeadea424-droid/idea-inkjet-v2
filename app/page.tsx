@@ -15,6 +15,7 @@ type Order = {
   receiver_id:  number | null; measurer_id:   number | null; delivery_id: number | null;
   detail: string; order_type: string; size: string; quantity: number; material: string;
   file_status: string; delivery_method: string; finishing: string;
+  payment_type: string; credit_days: number;
   created_at: string;
   customers?: Customer; designer?: Employee; production?: Employee;
   receiver?: Employee; measurer?: Employee; delivery?: Employee;
@@ -47,6 +48,7 @@ const EMPTY_ORDER = {
   due_date:'', designer_id:'', production_id:'',
   receiver_id:'', measurer_id:'', delivery_id:'',
   file_status:'มีไฟล์แล้ว', delivery_method:'รับเองที่ร้าน', finishing:'',
+  payment_type:'เงินสด', credit_days:'30',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -525,6 +527,8 @@ export default function Home() {
       file_status:      o.file_status      || 'มีไฟล์แล้ว',
       delivery_method:  o.delivery_method  || 'รับเองที่ร้าน',
       finishing:        o.finishing        || '',
+      payment_type:     o.payment_type     || 'เงินสด',
+      credit_days:      String(o.credit_days ?? 30),
     });
   }
 
@@ -553,6 +557,8 @@ export default function Home() {
       receiver_id:   editForm.receiver_id   ? Number(editForm.receiver_id)   : null,
       measurer_id:   editForm.measurer_id   ? Number(editForm.measurer_id)   : null,
       delivery_id:   editForm.delivery_id   ? Number(editForm.delivery_id)   : null,
+      payment_type: editForm.payment_type || 'เงินสด',
+      credit_days:  editForm.payment_type === 'เครดิต' ? Number(editForm.credit_days || 30) : 0,
       updated_at: new Date().toISOString(),
     });
     if (res.error) { setError(res.error.message); return; }
@@ -981,6 +987,7 @@ export default function Home() {
                               <span><b>มัดจำ:</b> {fmtMoney(o.deposit)} บาท</span>
                               {o.file_status     && <span><b>ไฟล์งาน:</b> {o.file_status}</span>}
                               {o.delivery_method && <span><b>การรับงาน:</b> {o.delivery_method}</span>}
+                              <span><b>การชำระ:</b> {o.payment_type || 'เงินสด'}{o.payment_type === 'เครดิต' && o.credit_days ? ` ${o.credit_days} วัน` : ''}</span>
                               {o.receiver   && <span><b>รับงาน:</b> {o.receiver.name}</span>}
                               {o.measurer   && <span><b>วัดป้าย:</b> {o.measurer.name}</span>}
                               {o.designer   && <span><b>ออกแบบ:</b> {o.designer.name}</span>}
@@ -1211,12 +1218,36 @@ export default function Home() {
           ) : (
             <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
               {unpaidByCustomer.map(({ customer, orders: custOrders, totalBalance, oldestDue }) => {
-                const isOverdue = !!oldestDue && oldestDue < today;
+                const hasCredit = custOrders.some(o => o.payment_type === 'เครดิต');
+                const hasCash   = custOrders.some(o => o.payment_type !== 'เครดิต');
+
+                // Credit payment due = due_date + credit_days
+                function creditPayDue(o: Order): string | null {
+                  if (o.payment_type !== 'เครดิต' || !o.due_date || !o.credit_days) return null;
+                  const d = new Date(o.due_date);
+                  d.setDate(d.getDate() + Number(o.credit_days));
+                  return d.toLocaleDateString('sv-SE');
+                }
+
+                const isAnyOverdue = custOrders.some(o => {
+                  if (o.payment_type === 'เครดิต') {
+                    const cpd = creditPayDue(o);
+                    return !!cpd && cpd < today;
+                  }
+                  return !!o.due_date && o.due_date < today;
+                });
+
                 const reminderText = [
                   `สวัสดีครับ คุณ${customer.name} 🙏`,
                   `ทางร้าน Idea Inkjet ขอแจ้งเตือนยอดค้างชำระดังนี้ครับ`,
                   ``,
-                  ...custOrders.map(o => `• ${orderCode(o)} ${o.title}\n  ยอดค้าง: ${fmtMoney(Number(o.balance))} บาท${o.due_date ? ` (นัดส่ง ${fmtDate(o.due_date)})` : ''}`),
+                  ...custOrders.map(o => {
+                    const cpd = creditPayDue(o);
+                    const payInfo = o.payment_type === 'เครดิต'
+                      ? ` [เครดิต ${o.credit_days} วัน${cpd ? ` ครบกำหนด ${fmtDate(cpd)}` : ''}]`
+                      : ` [เงินสด]`;
+                    return `• ${orderCode(o)} ${o.title}${payInfo}\n  ยอดค้าง: ${fmtMoney(Number(o.balance))} บาท`;
+                  }),
                   ``,
                   `ยอดรวมค้างชำระ: ${fmtMoney(totalBalance)} บาท`,
                   `กรุณาติดต่อชำระเงินที่ร้านหรือโอนมาได้เลยนะครับ`,
@@ -1225,11 +1256,15 @@ export default function Home() {
 
                 return (
                   <div key={customer.id} className="card"
-                    style={{ border: isOverdue ? '1px solid #fca5a5' : '1px solid var(--line)', padding:'16px 18px' }}>
+                    style={{ border: isAnyOverdue ? '1px solid #fca5a5' : '1px solid var(--line)', padding:'16px 18px' }}>
                     {/* Customer header */}
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:8, marginBottom:12 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:8, marginBottom:8 }}>
                       <div>
-                        <div style={{ fontWeight:700, fontSize:16, color:'#1e293b' }}>{customer.name}</div>
+                        <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                          <span style={{ fontWeight:700, fontSize:16, color:'#1e293b' }}>{customer.name}</span>
+                          {hasCredit && <span style={{ fontSize:11, background:'#ede9fe', color:'#5b21b6', padding:'2px 8px', borderRadius:20, fontWeight:700 }}>เครดิต</span>}
+                          {hasCash   && <span style={{ fontSize:11, background:'#d1fae5', color:'#065f46', padding:'2px 8px', borderRadius:20, fontWeight:700 }}>เงินสด</span>}
+                        </div>
                         <div style={{ fontSize:13, color:'var(--muted)', marginTop:2 }}>
                           {customer.phone && <span>📞 {customer.phone}</span>}
                           {customer.line_id && <span style={{ marginLeft:10 }}>LINE: {customer.line_id}</span>}
@@ -1237,36 +1272,54 @@ export default function Home() {
                       </div>
                       <div style={{ textAlign:'right' }}>
                         <div style={{ fontSize:20, fontWeight:800, color:'#dc2626' }}>{fmtMoney(totalBalance)} ฿</div>
-                        {isOverdue && oldestDue && (
-                          <div style={{ fontSize:11, color:'#dc2626', marginTop:2 }}>⚠️ เลยกำหนด {fmtDate(oldestDue)}</div>
-                        )}
+                        {isAnyOverdue && <div style={{ fontSize:11, color:'#dc2626', marginTop:2 }}>⚠️ เลยกำหนดชำระ</div>}
                       </div>
                     </div>
 
                     {/* Orders list */}
                     <div style={{ borderTop:'1px solid #f3f4f6', paddingTop:10, marginBottom:12 }}>
-                      {custOrders.map(o => (
-                        <div key={o.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                          padding:'7px 0', borderBottom:'1px dashed #f3f4f6', gap:8, flexWrap:'wrap' }}>
-                          <div style={{ flex:1, minWidth:0 }}>
-                            <span style={{ fontSize:12, color:'var(--muted)' }}>{orderCode(o)}</span>
-                            <span style={{ marginLeft:8, fontSize:14, fontWeight:600 }}>{o.title}</span>
-                            {o.due_date && (
-                              <span style={{ marginLeft:8, fontSize:12,
-                                color: o.due_date < today ? '#dc2626' : 'var(--muted)' }}>
-                                นัดส่ง {fmtDate(o.due_date)}
-                              </span>
-                            )}
+                      {custOrders.map(o => {
+                        const isCredit  = o.payment_type === 'เครดิต';
+                        const cpd       = creditPayDue(o);
+                        const payExpired = cpd ? cpd < today : (!isCredit && !!o.due_date && o.due_date < today);
+                        return (
+                          <div key={o.id} style={{ padding:'8px 0', borderBottom:'1px dashed #f3f4f6' }}>
+                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8, flexWrap:'wrap' }}>
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                                  <span style={{ fontSize:12, color:'var(--muted)' }}>{orderCode(o)}</span>
+                                  <span style={{ fontSize:14, fontWeight:600 }}>{o.title}</span>
+                                  {isCredit
+                                    ? <span style={{ fontSize:11, background:'#ede9fe', color:'#5b21b6', padding:'1px 7px', borderRadius:20, fontWeight:700, whiteSpace:'nowrap' }}>
+                                        เครดิต {o.credit_days} วัน
+                                      </span>
+                                    : <span style={{ fontSize:11, background:'#d1fae5', color:'#065f46', padding:'1px 7px', borderRadius:20, fontWeight:700 }}>
+                                        เงินสด
+                                      </span>
+                                  }
+                                </div>
+                                <div style={{ fontSize:12, marginTop:3, color: payExpired ? '#dc2626' : 'var(--muted)' }}>
+                                  {isCredit
+                                    ? cpd
+                                      ? <>{payExpired ? '⚠️ ' : ''}ครบกำหนดชำระ {fmtDate(cpd)}{payExpired ? ' (เลยกำหนด)' : ''}</>
+                                      : 'ยังไม่ระบุวันนัดส่ง'
+                                    : o.due_date
+                                      ? <>นัดส่ง {fmtDate(o.due_date)}{payExpired ? ' ⚠️ เลยกำหนด' : ''}</>
+                                      : null
+                                  }
+                                </div>
+                              </div>
+                              <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
+                                <b style={{ color:'#dc2626', whiteSpace:'nowrap' }}>{fmtMoney(Number(o.balance))} ฿</b>
+                                <button className="btnSm btnGreen"
+                                  onClick={() => { setPayingOrder(o); setPayForm({ amount: String(o.balance), method: isCredit ? 'โอนเงิน' : 'เงินสด' }); }}>
+                                  รับชำระ
+                                </button>
+                              </div>
+                            </div>
                           </div>
-                          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                            <b style={{ color:'#dc2626', whiteSpace:'nowrap' }}>{fmtMoney(Number(o.balance))} ฿</b>
-                            <button className="btnSm btnGreen"
-                              onClick={() => { setPayingOrder(o); setPayForm({ amount: String(o.balance), method:'เงินสด' }); }}>
-                              รับชำระ
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     {/* Actions */}
@@ -1537,6 +1590,23 @@ function OrderForm({ form, setForm, customers, employees, onSubmit, submitLabel 
       <Field label="การตกแต่ง / ฟินิชชิ่ง" full>
         <input value={form.finishing} onChange={e => setForm({...form, finishing:e.target.value})} placeholder="เช่น รูเจาะ, เชือกร้อย, ลามิเนต, เย็บตะเข็บ" />
       </Field>
+      <Field label="การชำระเงิน">
+        <select value={form.payment_type} onChange={e => setForm({...form, payment_type:e.target.value})}>
+          <option>เงินสด</option>
+          <option>เครดิต</option>
+        </select>
+      </Field>
+      {form.payment_type === 'เครดิต' && (
+        <Field label="เครดิต (วัน)">
+          <select value={form.credit_days} onChange={e => setForm({...form, credit_days:e.target.value})}>
+            <option value="15">15 วัน</option>
+            <option value="30">30 วัน</option>
+            <option value="45">45 วัน</option>
+            <option value="60">60 วัน</option>
+            <option value="90">90 วัน</option>
+          </select>
+        </Field>
+      )}
       <Field label="ราคา (บาท)"><input type="number" min="0" value={form.price} onChange={e => setForm({...form, price:e.target.value})} /></Field>
       <Field label="มัดจำ (บาท)"><input type="number" min="0" value={form.deposit} onChange={e => setForm({...form, deposit:e.target.value})} /></Field>
       {Number(form.price) > 0 && (
@@ -1739,6 +1809,7 @@ function PrintSlip({ order }: { order: Order }) {
       <div className="slipSection">
         <div className="slipRow"><span>วันนัดส่ง</span><b>{fmtDate(order.due_date)}</b></div>
         <div className="slipRow"><span>สถานะ</span><b>{order.status}</b></div>
+        <div className="slipRow"><span>การชำระ</span><b>{order.payment_type || 'เงินสด'}{order.payment_type === 'เครดิต' && order.credit_days ? ` ${order.credit_days} วัน` : ''}</b></div>
       </div>
       <div className="slipSection">
         <div className="slipSectionTitle">ข้อมูลลูกค้า</div>
