@@ -173,7 +173,7 @@ export default function Home() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [editForm,     setEditForm]     = useState(EMPTY_ORDER);
   const [payingOrder,  setPayingOrder]  = useState<Order | null>(null);
-  const [payForm,      setPayForm]      = useState({ amount:'', method:'เงินสด' });
+  const [payForm,      setPayForm]      = useState({ amount:'', method:'เงินสด', received_by:'เจ้าของร้าน' });
   const [printOrder,    setPrintOrder]    = useState<Order | null>(null);
   const [receiptOrder,  setReceiptOrder]  = useState<Order | null>(null);
   const [receiptType,   setReceiptType]   = useState<'cash'|'tax'>('cash');
@@ -625,24 +625,38 @@ export default function Home() {
     e.preventDefault(); if (!payingOrder) return; setError('');
     const amount = Number(payForm.amount);
     if (!amount || amount <= 0) { setError('กรุณาระบุจำนวนเงินที่รับ'); return; }
+
+    const newBalance = Math.max(0, Number(payingOrder.balance || 0) - amount);
+    const newStatus  = newBalance === 0 ? 'ชำระเงินแล้ว' : 'ค้างชำระ';
+    const note       = `รับเงิน ${fmtMoney(amount)} บาท (${payForm.method})${newBalance > 0 ? ` คงเหลือ ${fmtMoney(newBalance)} บาท` : ' ครบ'}`;
+
+    // 1. บันทึกการรับเงิน (ไม่ block ถ้า payments table ไม่มี)
     const p = await supabase.from('payments').insert({
       order_id: payingOrder.id, amount,
       payment_method: payForm.method, payment_status: 'paid',
-      payment_date: new Date().toISOString(), note: `รับเงิน ${payForm.method}`,
+      payment_date: new Date().toISOString(),
+      note, received_by: payForm.received_by,
     });
-    if (p.error) { setError(p.error.message); return; }
-    const newBalance = Math.max(0, Number(payingOrder.balance || 0) - amount);
-    const newStatus  = newBalance === 0 ? 'ชำระเงินแล้ว' : payingOrder.status;
-    await supabase.from('orders').update({
+    if (p.error && !p.error.message.includes('Could not find') && !p.error.message.includes('does not exist')) {
+      setError(p.error.message); return;
+    }
+
+    // 2. อัปเดตยอดค้างและสถานะ
+    const upd = await supabase.from('orders').update({
       balance: newBalance, status: newStatus, updated_at: new Date().toISOString(),
     }).eq('id', payingOrder.id);
-    if (newBalance === 0 && newStatus !== payingOrder.status) {
-      await supabase.from('order_status_logs').insert({
-        order_id: payingOrder.id, old_status: payingOrder.status, new_status: 'ชำระเงินแล้ว',
-        note: `รับเงิน ${fmtMoney(amount)} บาท ครบ`, changed_by: 'เจ้าของร้าน',
-      });
-    }
-    setPayingOrder(null); setPayForm({ amount:'', method:'เงินสด' });
+    if (upd.error) { setError(upd.error.message); return; }
+
+    // 3. บันทึก log เสมอ (ทั้งชำระบางส่วนและครบ)
+    await supabase.from('order_status_logs').insert({
+      order_id: payingOrder.id,
+      old_status: payingOrder.status,
+      new_status: newStatus,
+      note,
+      changed_by: payForm.received_by,
+    });
+
+    setPayingOrder(null); setPayForm({ amount:'', method:'เงินสด', received_by:'เจ้าของร้าน' });
     show('บันทึกรับเงินแล้ว'); load();
   }
 
@@ -966,7 +980,7 @@ export default function Home() {
                             </select>
                             {Number(o.balance) > 0 && (
                               <button className="btnGreen" onClick={() => {
-                                setPayingOrder(o); setPayForm({ amount: String(o.balance), method:'เงินสด' });
+                                setPayingOrder(o); setPayForm({ amount: String(o.balance), method:'เงินสด', received_by:'เจ้าของร้าน' });
                               }}>รับเงิน</button>
                             )}
                             <button className="btn2"    onClick={() => openEditOrder(o)}>แก้ไข</button>
@@ -1312,7 +1326,7 @@ export default function Home() {
                               <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
                                 <b style={{ color:'#dc2626', whiteSpace:'nowrap' }}>{fmtMoney(Number(o.balance))} ฿</b>
                                 <button className="btnSm btnGreen"
-                                  onClick={() => { setPayingOrder(o); setPayForm({ amount: String(o.balance), method: isCredit ? 'โอนเงิน' : 'เงินสด' }); }}>
+                                  onClick={() => { setPayingOrder(o); setPayForm({ amount: String(o.balance), method: isCredit ? 'โอนธนาคาร' : 'เงินสด', received_by:'เจ้าของร้าน' }); }}>
                                   รับชำระ
                                 </button>
                               </div>
@@ -1328,7 +1342,7 @@ export default function Home() {
                         onClick={() => {
                           const biggest = [...custOrders].sort((a,b)=>Number(b.balance)-Number(a.balance))[0];
                           setPayingOrder(biggest);
-                          setPayForm({ amount: String(biggest.balance), method:'เงินสด' });
+                          setPayForm({ amount: String(biggest.balance), method:'เงินสด', received_by:'เจ้าของร้าน' });
                         }}>
                         💰 รับชำระทั้งหมด
                       </button>
@@ -1375,7 +1389,7 @@ export default function Home() {
               <input type="number" min="1" required autoFocus
                 value={payForm.amount} onChange={e => setPayForm({...payForm, amount:e.target.value})} />
             </Field>
-            <Field label="ช่องทางชำระเงิน" full>
+            <Field label="ช่องทางชำระเงิน">
               <select value={payForm.method} onChange={e => setPayForm({...payForm, method:e.target.value})}>
                 <option value="เงินสด">เงินสด</option>
                 <option value="โอนธนาคาร">โอนธนาคาร</option>
@@ -1383,8 +1397,19 @@ export default function Home() {
                 <option value="QR Code">QR Code</option>
               </select>
             </Field>
-            {payForm.amount && Number(payForm.amount) >= Number(payingOrder.balance) && (
-              <div className="balancePreview full">สถานะจะเปลี่ยนเป็น <b>ชำระเงินแล้ว</b> อัตโนมัติ</div>
+            <Field label="ผู้รับเงิน">
+              <select value={payForm.received_by} onChange={e => setPayForm({...payForm, received_by:e.target.value})}>
+                <option value="เจ้าของร้าน">เจ้าของร้าน</option>
+                {employees.map(emp => <option key={emp.id} value={emp.name}>{emp.name}</option>)}
+              </select>
+            </Field>
+            {payForm.amount && (
+              <div className={`full ${Number(payForm.amount) >= Number(payingOrder.balance) ? 'balancePreview' : 'balancePreview balanceWarn'}`}>
+                {Number(payForm.amount) >= Number(payingOrder.balance)
+                  ? <>สถานะจะเปลี่ยนเป็น <b>ชำระเงินแล้ว</b> อัตโนมัติ</>
+                  : <>คงเหลือ <b>{fmtMoney(Math.max(0, Number(payingOrder.balance) - Number(payForm.amount)))} บาท</b> → สถานะ <b>ค้างชำระ</b></>
+                }
+              </div>
             )}
             <button type="submit" className="full btnGreen">บันทึกรับเงิน</button>
           </form>
