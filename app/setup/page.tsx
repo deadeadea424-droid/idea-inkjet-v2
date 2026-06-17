@@ -91,7 +91,22 @@ INSERT INTO app_settings (key, value) VALUES
   ('shop_phone', '')
 ON CONFLICT (key) DO NOTHING;`;
 
-const TABLES = ['app_settings','customers','employees','orders','order_status_logs','payments'];
+// tables + which column to probe (app_settings has no 'id')
+const TABLES: [string, string][] = [
+  ['app_settings','key'],
+  ['customers','id'],
+  ['employees','id'],
+  ['orders','id'],
+  ['order_status_logs','id'],
+  ['payments','id'],
+];
+
+const RLS_SQL = `ALTER TABLE app_settings DISABLE ROW LEVEL SECURITY;
+ALTER TABLE customers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE employees DISABLE ROW LEVEL SECURITY;
+ALTER TABLE orders DISABLE ROW LEVEL SECURITY;
+ALTER TABLE order_status_logs DISABLE ROW LEVEL SECURITY;
+ALTER TABLE payments DISABLE ROW LEVEL SECURITY;`;
 
 export default function SetupPage() {
   const [results,   setResults]   = useState<Result[]>([]);
@@ -99,16 +114,27 @@ export default function SetupPage() {
   const [pinNew,    setPinNew]    = useState('');
   const [pinStatus, setPinStatus] = useState('');
   const [copied,    setCopied]    = useState(false);
+  const [copiedRls, setCopiedRls] = useState(false);
 
   async function runCheck() {
     setRunning(true);
     const out: Result[] = [];
-    for (const t of TABLES) {
-      const { error } = await supabase.from(t).select('id').limit(1);
-      out.push({ label: t, ok: !error, msg: error ? error.message : 'พร้อมใช้งาน ✓' });
+    for (const [t, col] of TABLES) {
+      const { error } = await supabase.from(t).select(col).limit(1);
+      const rlsErr = error?.message?.includes('row-level security') || error?.message?.includes('policy');
+      const msg = error
+        ? (rlsErr ? '⚠️ RLS บล็อกอยู่ — รัน SQL ด้านล่าง' : error.message)
+        : 'พร้อมใช้งาน ✓';
+      out.push({ label: t, ok: !error, msg });
     }
     setResults(out);
     setRunning(false);
+  }
+
+  function copyRls() {
+    navigator.clipboard?.writeText(RLS_SQL).then(() => {
+      setCopiedRls(true); setTimeout(() => setCopiedRls(false), 3000);
+    });
   }
 
   async function resetPin() {
@@ -190,6 +216,22 @@ export default function SetupPage() {
             )}
           </div>
         )}
+      </div>
+
+      {/* ── RLS Fix ──────────────────────────────────────────── */}
+      <div style={card}>
+        <div style={cardTitle}>🔓 ปิด RLS (Row Level Security)</div>
+        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 10 }}>
+          ถ้าเห็น ❌ หรือ "RLS บล็อก" — กด copy แล้วรันใน Supabase SQL Editor
+        </div>
+        <button onClick={copyRls} style={{ ...btnPrimary, background: copiedRls ? '#16a34a' : '#dc2626' }}>
+          {copiedRls ? '✅ คัดลอกแล้ว!' : '📋 คัดลอก SQL ปิด RLS'}
+        </button>
+        <textarea readOnly value={RLS_SQL}
+          style={{ marginTop: 10, width: '100%', height: 130, fontFamily: 'monospace', fontSize: 12,
+            border: '1px solid #e5e7eb', borderRadius: 8, padding: 10,
+            background: '#1e293b', color: '#fca5a5', resize: 'none', boxSizing: 'border-box' }}
+          onFocus={e => e.target.select()} />
       </div>
 
       {/* ── SQL Script ──────────────────────────────────────── */}
