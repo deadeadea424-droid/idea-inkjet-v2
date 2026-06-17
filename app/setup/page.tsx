@@ -11,13 +11,18 @@ ALTER TABLE employees DISABLE ROW LEVEL SECURITY;
 ALTER TABLE orders DISABLE ROW LEVEL SECURITY;
 ALTER TABLE payments DISABLE ROW LEVEL SECURITY;`;
 
+const SCHEMA_FIX_SQL = `-- แก้ column changed_by ให้เป็น TEXT (ถ้าเป็น BIGINT อยู่)
+ALTER TABLE order_status_logs
+  ALTER COLUMN changed_by TYPE TEXT USING changed_by::text;`;
+
 export default function SetupPage() {
-  const [tests,     setTests]     = useState<TestResult[]>([]);
-  const [testing,   setTesting]   = useState(false);
-  const [pinNew,    setPinNew]    = useState('');
-  const [pinStatus, setPinStatus] = useState('');
-  const [copied,    setCopied]    = useState(false);
-  const [showGuide, setShowGuide] = useState(false);
+  const [tests,        setTests]        = useState<TestResult[]>([]);
+  const [testing,      setTesting]      = useState(false);
+  const [pinNew,       setPinNew]       = useState('');
+  const [pinStatus,    setPinStatus]    = useState('');
+  const [copied,       setCopied]       = useState(false);
+  const [copiedSchema, setCopiedSchema] = useState(false);
+  const [showGuide,    setShowGuide]    = useState(false);
 
   async function runAllTests() {
     setTesting(true);
@@ -40,14 +45,21 @@ export default function SetupPage() {
     // Test order_status_logs
     {
       const s = await supabase.from('order_status_logs').select('id').limit(1);
-      const i = await supabase.from('order_status_logs').insert({ order_id: 0, new_status: '__test__', note: 'test', changed_by: 'setup' });
+      const i = await supabase.from('order_status_logs').insert({ order_id: 0, new_status: '__test__', note: 'test', changed_by: 'setup_test' });
       if (!i.error) await supabase.from('order_status_logs').delete().eq('new_status', '__test__');
-      const rlsErr = (e: any) => e?.message?.includes('security') || e?.message?.includes('policy');
+      const rlsErr  = (e: any) => e?.message?.includes('security') || e?.message?.includes('policy');
+      const typeErr = (e: any) => e?.message?.includes('invalid input syntax') || e?.message?.includes('bigint');
+      let msg = '';
+      if (i.error) {
+        if (rlsErr(i.error))  msg = '🔴 RLS บล็อก INSERT — ต้องปิด RLS ก่อน';
+        else if (typeErr(i.error)) msg = '🟠 Schema ผิด: changed_by เป็น BIGINT — ต้องรัน SQL แก้ schema';
+        else msg = i.error.message;
+      }
       out.push({
         name: 'order_status_logs',
         select: s.error ? 'err' : 'ok',
         insert: i.error ? 'err' : 'ok',
-        msg: i.error ? (rlsErr(i.error) ? '🔴 RLS บล็อก INSERT — ประวัติไม่บันทึก!' : i.error.message) : '',
+        msg,
       });
     }
 
@@ -78,6 +90,14 @@ export default function SetupPage() {
       setCopied(true); setTimeout(() => setCopied(false), 3000);
     });
   }
+
+  function copySchema() {
+    navigator.clipboard?.writeText(SCHEMA_FIX_SQL).then(() => {
+      setCopiedSchema(true); setTimeout(() => setCopiedSchema(false), 3000);
+    });
+  }
+
+  const hasSchemaError = tests.some(t => t.msg.includes('Schema ผิด') || t.msg.includes('bigint'));
 
   const hasRlsError = tests.some(t => t.insert === 'err');
 
@@ -176,6 +196,25 @@ export default function SetupPage() {
                 borderRadius: 8, padding: 10, background: '#1e293b', color: '#86efac',
                 border: 'none', resize: 'none', boxSizing: 'border-box' }} />
           </div>
+        </div>
+      )}
+
+      {/* ── Schema Fix ────────────────────────────────────── */}
+      {hasSchemaError && (
+        <div style={{ ...card, borderColor: '#fed7aa', borderWidth: 2 }}>
+          <div style={step}>แก้ Schema</div>
+          <div style={cardTitle}>🟠 column changed_by ต้องเป็น TEXT</div>
+          <div style={{ fontSize: 13, color: '#92400e', marginBottom: 12 }}>
+            ตาราง <code>order_status_logs</code> มี column <code>changed_by</code> เป็น BIGINT แต่ต้องเป็น TEXT
+            กด copy แล้วรันใน Supabase SQL Editor ครับ
+          </div>
+          <button onClick={copySchema} style={{ ...btnPrimary, background: copiedSchema ? '#16a34a' : '#ea580c', fontSize: 14, padding: '11px' }}>
+            {copiedSchema ? '✅ คัดลอกแล้ว!' : '📋 คัดลอก SQL แก้ Schema'}
+          </button>
+          <textarea readOnly value={SCHEMA_FIX_SQL} onFocus={e => e.target.select()}
+            style={{ marginTop: 8, width: '100%', height: 70, fontFamily: 'monospace', fontSize: 12,
+              borderRadius: 8, padding: 10, background: '#1e293b', color: '#fed7aa',
+              border: 'none', resize: 'none', boxSizing: 'border-box' }} />
         </div>
       )}
 

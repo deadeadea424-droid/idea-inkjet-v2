@@ -521,7 +521,7 @@ export default function Home() {
       delivery_id:   orderForm.delivery_id   ? Number(orderForm.delivery_id)   : null,
     });
     if (res.error) { setError(res.error.message); return; }
-    await supabase.from('order_status_logs').insert({
+    await dbInsert('order_status_logs', {
       order_id: res.data?.id, old_status: '', new_status: 'รับงานใหม่', note: 'เปิดงานใหม่', changed_by: 'เจ้าของร้าน',
     });
     setOrderForm(EMPTY_ORDER); show('เปิดงานใหม่แล้ว'); setTab('orders'); load();
@@ -631,7 +631,7 @@ export default function Home() {
       : (employees.find(e => e.id === selectedEmpId)?.name ?? 'พนักงาน');
     const res = await dbUpdate('orders', o.id, { status: newStatus, updated_at: new Date().toISOString() });
     if (res.error) { setError(res.error.message); return; }
-    const logRes = await supabase.from('order_status_logs').insert({
+    const logRes = await dbInsert('order_status_logs', {
       order_id: o.id, old_status: o.status, new_status: newStatus, note: '', changed_by: changedBy,
     });
     if (logRes.error) {
@@ -672,7 +672,7 @@ export default function Home() {
     if (upd.error) { setError(upd.error.message); return; }
 
     // 3. บันทึก log เสมอ (ทั้งชำระบางส่วนและครบ)
-    const logRes2 = await supabase.from('order_status_logs').insert({
+    const logRes2 = await dbInsert('order_status_logs', {
       order_id: payingOrder.id,
       old_status: payingOrder.status,
       new_status: newStatus,
