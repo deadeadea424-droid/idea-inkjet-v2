@@ -2,174 +2,196 @@
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
-type Result = { label: string; ok: boolean; msg: string };
-
-const SQL_SCRIPT = `-- Idea Inkjet V2 — Full Setup
-CREATE TABLE IF NOT EXISTS app_settings (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL DEFAULT ''
-);
-ALTER TABLE app_settings DISABLE ROW LEVEL SECURITY;
-
-CREATE TABLE IF NOT EXISTS customers (
-  id BIGSERIAL PRIMARY KEY,
-  name TEXT NOT NULL DEFAULT '',
-  phone TEXT DEFAULT '',
-  line_id TEXT DEFAULT '',
-  contact_channel TEXT DEFAULT 'LINE',
-  address TEXT DEFAULT '',
-  tax_id TEXT DEFAULT '',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE customers DISABLE ROW LEVEL SECURITY;
-
-CREATE TABLE IF NOT EXISTS employees (
-  id BIGSERIAL PRIMARY KEY,
-  name TEXT NOT NULL DEFAULT '',
-  position TEXT DEFAULT '',
-  role TEXT DEFAULT 'graphic',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE employees DISABLE ROW LEVEL SECURITY;
-
-CREATE TABLE IF NOT EXISTS orders (
-  id BIGSERIAL PRIMARY KEY,
-  order_code TEXT DEFAULT '',
-  title TEXT DEFAULT '',
-  status TEXT DEFAULT 'รับงานใหม่',
-  due_date DATE,
-  price NUMERIC DEFAULT 0,
-  deposit NUMERIC DEFAULT 0,
-  balance NUMERIC DEFAULT 0,
-  customer_id BIGINT REFERENCES customers(id),
-  designer_id BIGINT REFERENCES employees(id),
-  production_id BIGINT REFERENCES employees(id),
-  receiver_id BIGINT REFERENCES employees(id),
-  measurer_id BIGINT REFERENCES employees(id),
-  delivery_id BIGINT REFERENCES employees(id),
-  detail TEXT DEFAULT '',
-  order_type TEXT DEFAULT '',
-  size TEXT DEFAULT '',
-  quantity INTEGER DEFAULT 1,
-  material TEXT DEFAULT '',
-  file_status TEXT DEFAULT '',
-  delivery_method TEXT DEFAULT '',
-  finishing TEXT DEFAULT '',
-  payment_type TEXT DEFAULT 'เงินสด',
-  credit_days INTEGER DEFAULT 30,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE orders DISABLE ROW LEVEL SECURITY;
-
-CREATE TABLE IF NOT EXISTS order_status_logs (
-  id BIGSERIAL PRIMARY KEY,
-  order_id BIGINT NOT NULL,
-  old_status TEXT DEFAULT '',
-  new_status TEXT NOT NULL,
-  note TEXT DEFAULT '',
-  changed_by TEXT DEFAULT '',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE order_status_logs DISABLE ROW LEVEL SECURITY;
-
-CREATE TABLE IF NOT EXISTS payments (
-  id BIGSERIAL PRIMARY KEY,
-  order_id BIGINT NOT NULL,
-  amount NUMERIC NOT NULL,
-  method TEXT DEFAULT 'เงินสด',
-  note TEXT DEFAULT '',
-  received_by TEXT DEFAULT '',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE payments DISABLE ROW LEVEL SECURITY;
-
-INSERT INTO app_settings (key, value) VALUES
-  ('owner_pin', '1234'),
-  ('shop_name', 'Idea Inkjet'),
-  ('shop_address', ''),
-  ('shop_tax_id', ''),
-  ('shop_phone', '')
-ON CONFLICT (key) DO NOTHING;`;
-
-// tables + which column to probe (app_settings has no 'id')
-const TABLES: [string, string][] = [
-  ['app_settings','key'],
-  ['customers','id'],
-  ['employees','id'],
-  ['orders','id'],
-  ['order_status_logs','id'],
-  ['payments','id'],
-];
+type TestResult = { name: string; select: 'ok'|'err'|''; insert: 'ok'|'err'|''; msg: string };
 
 const RLS_SQL = `ALTER TABLE app_settings DISABLE ROW LEVEL SECURITY;
+ALTER TABLE order_status_logs DISABLE ROW LEVEL SECURITY;
 ALTER TABLE customers DISABLE ROW LEVEL SECURITY;
 ALTER TABLE employees DISABLE ROW LEVEL SECURITY;
 ALTER TABLE orders DISABLE ROW LEVEL SECURITY;
-ALTER TABLE order_status_logs DISABLE ROW LEVEL SECURITY;
 ALTER TABLE payments DISABLE ROW LEVEL SECURITY;`;
 
 export default function SetupPage() {
-  const [results,   setResults]   = useState<Result[]>([]);
-  const [running,   setRunning]   = useState(false);
+  const [tests,     setTests]     = useState<TestResult[]>([]);
+  const [testing,   setTesting]   = useState(false);
   const [pinNew,    setPinNew]    = useState('');
   const [pinStatus, setPinStatus] = useState('');
   const [copied,    setCopied]    = useState(false);
-  const [copiedRls, setCopiedRls] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
-  async function runCheck() {
-    setRunning(true);
-    const out: Result[] = [];
-    for (const [t, col] of TABLES) {
-      const { error } = await supabase.from(t).select(col).limit(1);
-      const rlsErr = error?.message?.includes('row-level security') || error?.message?.includes('policy');
-      const msg = error
-        ? (rlsErr ? '⚠️ RLS บล็อกอยู่ — รัน SQL ด้านล่าง' : error.message)
-        : 'พร้อมใช้งาน ✓';
-      out.push({ label: t, ok: !error, msg });
+  async function runAllTests() {
+    setTesting(true);
+    const out: TestResult[] = [];
+
+    // Test app_settings
+    {
+      const s = await supabase.from('app_settings').select('key').limit(1);
+      const i = await supabase.from('app_settings').upsert({ key: '__test__', value: 'test' });
+      if (!i.error) await supabase.from('app_settings').delete().eq('key', '__test__');
+      const rlsErr = (e: any) => e?.message?.includes('security') || e?.message?.includes('policy');
+      out.push({
+        name: 'app_settings',
+        select: s.error ? 'err' : 'ok',
+        insert: i.error ? 'err' : 'ok',
+        msg: i.error ? (rlsErr(i.error) ? '🔴 RLS บล็อก INSERT' : i.error.message) : '',
+      });
     }
-    setResults(out);
-    setRunning(false);
-  }
 
-  function copyRls() {
-    navigator.clipboard?.writeText(RLS_SQL).then(() => {
-      setCopiedRls(true); setTimeout(() => setCopiedRls(false), 3000);
-    });
+    // Test order_status_logs
+    {
+      const s = await supabase.from('order_status_logs').select('id').limit(1);
+      const i = await supabase.from('order_status_logs').insert({ order_id: 0, new_status: '__test__', note: 'test', changed_by: 'setup' });
+      if (!i.error) await supabase.from('order_status_logs').delete().eq('new_status', '__test__');
+      const rlsErr = (e: any) => e?.message?.includes('security') || e?.message?.includes('policy');
+      out.push({
+        name: 'order_status_logs',
+        select: s.error ? 'err' : 'ok',
+        insert: i.error ? 'err' : 'ok',
+        msg: i.error ? (rlsErr(i.error) ? '🔴 RLS บล็อก INSERT — ประวัติไม่บันทึก!' : i.error.message) : '',
+      });
+    }
+
+    // Test customers
+    {
+      const s = await supabase.from('customers').select('id').limit(1);
+      out.push({ name: 'customers', select: s.error ? 'err' : 'ok', insert: '', msg: s.error?.message || '' });
+    }
+
+    setTests(out);
+    setTesting(false);
   }
 
   async function resetPin() {
-    if (!pinNew || pinNew.length < 4) { setPinStatus('กรุณาใส่รหัสผ่านอย่างน้อย 4 ตัว'); return; }
+    if (!pinNew || pinNew.length < 4) { setPinStatus('ใส่รหัสผ่านอย่างน้อย 4 ตัว'); return; }
     setPinStatus('กำลังบันทึก...');
-    const { error } = await supabase.from('app_settings')
-      .upsert({ key: 'owner_pin', value: pinNew });
+    const { error } = await supabase.from('app_settings').upsert({ key: 'owner_pin', value: pinNew });
     if (error) {
-      const { error: e2 } = await supabase.from('app_settings')
-        .delete().eq('key','owner_pin');
-      const { error: e3 } = await supabase.from('app_settings')
-        .insert({ key:'owner_pin', value: pinNew });
-      if (e3) { setPinStatus('ผิดพลาด: ' + e3.message); return; }
+      await supabase.from('app_settings').delete().eq('key', 'owner_pin');
+      const { error: e2 } = await supabase.from('app_settings').insert({ key: 'owner_pin', value: pinNew });
+      if (e2) { setPinStatus('❌ ผิดพลาด: ' + e2.message + '\n\nต้องปิด RLS ของ app_settings ก่อนครับ'); return; }
     }
-    setPinStatus('✅ ตั้งรหัสผ่านเป็น "' + pinNew + '" แล้ว — กลับไปล็อกอินได้เลย');
+    setPinStatus('✅ ตั้งรหัสผ่าน "' + pinNew + '" แล้ว — กลับหน้าหลักได้เลย');
   }
 
   function copySql() {
-    navigator.clipboard?.writeText(SQL_SCRIPT).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 3000);
+    navigator.clipboard?.writeText(RLS_SQL).then(() => {
+      setCopied(true); setTimeout(() => setCopied(false), 3000);
     });
   }
 
+  const hasRlsError = tests.some(t => t.insert === 'err');
+
   return (
-    <main style={{ maxWidth: 520, margin: '0 auto', padding: '24px 16px 60px', background: '#f8fafc', minHeight: '100vh' }}>
-      <div style={{ textAlign: 'center', marginBottom: 24 }}>
-        <div style={{ fontSize: 36, marginBottom: 8 }}>🔧</div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b' }}>Setup ระบบ</div>
-        <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>Idea Inkjet V2</div>
+    <main style={{ maxWidth: 520, margin: '0 auto', padding: '20px 14px 60px', background: '#f8fafc', minHeight: '100vh' }}>
+
+      <div style={{ textAlign: 'center', marginBottom: 20 }}>
+        <div style={{ fontSize: 34 }}>🔧</div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: '#1e293b' }}>Setup ระบบ</div>
+        <div style={{ fontSize: 12, color: '#6b7280' }}>Idea Inkjet V2</div>
       </div>
 
-      {/* ── ตั้ง PIN ──────────────────────────────────────── */}
+      {/* ── STEP 1: ทดสอบ ─────────────────────────────────── */}
       <div style={card}>
+        <div style={step}>ขั้นตอนที่ 1</div>
+        <div style={cardTitle}>🧪 ทดสอบการเชื่อมต่อฐานข้อมูล</div>
+        <button onClick={runAllTests} disabled={testing} style={btnPrimary}>
+          {testing ? '⏳ กำลังทดสอบ...' : '▶ ทดสอบเลย'}
+        </button>
+
+        {tests.length > 0 && (
+          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {tests.map(t => (
+              <div key={t.name} style={{
+                padding: '10px 14px', borderRadius: 10,
+                background: (t.insert === 'err' || t.select === 'err') ? '#fef2f2' : '#f0fdf4',
+                border: `1px solid ${(t.insert === 'err' || t.select === 'err') ? '#fecaca' : '#bbf7d0'}`,
+              }}>
+                <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13,
+                  color: (t.insert === 'err' || t.select === 'err') ? '#dc2626' : '#15803d' }}>
+                  {t.name}
+                </div>
+                <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 12 }}>
+                  {t.select && <span>อ่านข้อมูล: {t.select === 'ok' ? '✅' : '❌'}</span>}
+                  {t.insert && <span>บันทึกข้อมูล: {t.insert === 'ok' ? '✅' : '❌'}</span>}
+                </div>
+                {t.msg && <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4 }}>{t.msg}</div>}
+              </div>
+            ))}
+
+            {!hasRlsError && (
+              <div style={{ padding: '12px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, fontSize: 13, color: '#15803d', fontWeight: 600 }}>
+                ✅ ฐานข้อมูลพร้อมใช้งานทั้งหมด!
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── STEP 2: วิธีปิด RLS ───────────────────────────── */}
+      {(hasRlsError || showGuide) && (
+        <div style={{ ...card, borderColor: '#fecaca', borderWidth: 2 }}>
+          <div style={step}>ขั้นตอนที่ 2</div>
+          <div style={cardTitle}>🔓 ปิด RLS ใน Supabase</div>
+
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', marginBottom: 12 }}>
+            ⚠️ RLS บล็อกการบันทึกข้อมูล — ต้องปิดก่อนครับ
+          </div>
+
+          {/* วิธีที่ 1: ผ่าน UI */}
+          <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: '#1d4ed8', marginBottom: 10 }}>
+              วิธีที่ 1 — ผ่านหน้าเว็บ Supabase (ง่ายกว่า)
+            </div>
+            {[
+              'เปิด supabase.com แล้ว Login',
+              'เลือก Project ของคุณ',
+              'กดเมนู "Table Editor" (แถบซ้าย)',
+              'กดเลือกตาราง "app_settings"',
+              'มองหา "RLS" หรือไอคอนกุญแจ 🔒 แล้วกด Disable',
+              'ทำซ้ำกับตาราง "order_status_logs"',
+              'กลับมากด "ทดสอบเลย" อีกครั้ง',
+            ].map((s, i) => (
+              <div key={i} style={{ display: 'flex', gap: 10, marginBottom: 8, alignItems: 'flex-start' }}>
+                <div style={{ minWidth: 24, height: 24, background: '#1d4ed8', color: 'white',
+                  borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                <div style={{ fontSize: 13, paddingTop: 3 }}>{s}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* วิธีที่ 2: SQL */}
+          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '12px 14px' }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: '#15803d', marginBottom: 8 }}>
+              วิธีที่ 2 — ผ่าน SQL Editor
+            </div>
+            <div style={{ fontSize: 12, color: '#166534', marginBottom: 8 }}>
+              Supabase → SQL Editor → New query → วาง → กด Run
+            </div>
+            <button onClick={copySql} style={{ ...btnPrimary, background: copied ? '#16a34a' : '#15803d', fontSize: 14, padding: '11px' }}>
+              {copied ? '✅ คัดลอกแล้ว!' : '📋 คัดลอก SQL (1 คลิก)'}
+            </button>
+            <textarea readOnly value={RLS_SQL} onFocus={e => e.target.select()}
+              style={{ marginTop: 8, width: '100%', height: 110, fontFamily: 'monospace', fontSize: 11,
+                borderRadius: 8, padding: 10, background: '#1e293b', color: '#86efac',
+                border: 'none', resize: 'none', boxSizing: 'border-box' }} />
+          </div>
+        </div>
+      )}
+
+      {!hasRlsError && !showGuide && tests.length > 0 && (
+        <button onClick={() => setShowGuide(true)} style={{ ...btnSecondary, marginBottom: 16 }}>
+          ดูวิธีปิด RLS
+        </button>
+      )}
+
+      {/* ── STEP 3: ตั้ง PIN ──────────────────────────────── */}
+      <div style={card}>
+        <div style={step}>ขั้นตอนที่ 3</div>
         <div style={cardTitle}>🔑 ตั้งรหัสผ่านเจ้าของร้าน</div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
+          ทำหลังจากปิด RLS ของ app_settings แล้วครับ
+        </div>
         <input
           type="number" placeholder="รหัสผ่านใหม่ (ตัวเลข 4+ หลัก)"
           value={pinNew} onChange={e => setPinNew(e.target.value)}
@@ -177,86 +199,11 @@ export default function SetupPage() {
         />
         <button onClick={resetPin} style={btnPrimary}>บันทึกรหัสผ่าน</button>
         {pinStatus && (
-          <div style={{ marginTop: 10, fontSize: 14,
+          <div style={{ marginTop: 10, fontSize: 13, whiteSpace: 'pre-line',
             color: pinStatus.startsWith('✅') ? '#16a34a' : '#dc2626' }}>
             {pinStatus}
           </div>
         )}
-      </div>
-
-      {/* ── ตรวจสอบตาราง ──────────────────────────────────── */}
-      <div style={card}>
-        <div style={cardTitle}>🗄️ ตรวจสอบตารางในฐานข้อมูล</div>
-        <button onClick={runCheck} disabled={running} style={btnSecondary}>
-          {running ? 'กำลังตรวจสอบ...' : 'ตรวจสอบทุกตาราง'}
-        </button>
-        {results.length > 0 && (
-          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {results.map(r => (
-              <div key={r.label} style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '8px 12px', borderRadius: 8,
-                background: r.ok ? '#f0fdf4' : '#fef2f2',
-                border: `1px solid ${r.ok ? '#bbf7d0' : '#fecaca'}`,
-              }}>
-                <span style={{ fontSize: 18 }}>{r.ok ? '✅' : '❌'}</span>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 13, fontFamily: 'monospace',
-                    color: r.ok ? '#15803d' : '#dc2626' }}>{r.label}</div>
-                  <div style={{ fontSize: 11, color: '#6b7280' }}>{r.msg}</div>
-                </div>
-              </div>
-            ))}
-            {results.some(r => !r.ok) && (
-              <div style={{ marginTop: 8, padding: '10px 12px', background: '#fff7ed',
-                border: '1px solid #fed7aa', borderRadius: 8, fontSize: 13, color: '#92400e' }}>
-                ⚠️ ตารางที่แสดง ❌ ต้องสร้างใน Supabase SQL Editor
-                ดู SQL ด้านล่างแล้วกด "คัดลอก SQL" ครับ
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── RLS Fix ──────────────────────────────────────────── */}
-      <div style={card}>
-        <div style={cardTitle}>🔓 ปิด RLS (Row Level Security)</div>
-        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 10 }}>
-          ถ้าเห็น ❌ หรือ "RLS บล็อก" — กด copy แล้วรันใน Supabase SQL Editor
-        </div>
-        <button onClick={copyRls} style={{ ...btnPrimary, background: copiedRls ? '#16a34a' : '#dc2626' }}>
-          {copiedRls ? '✅ คัดลอกแล้ว!' : '📋 คัดลอก SQL ปิด RLS'}
-        </button>
-        <textarea readOnly value={RLS_SQL}
-          style={{ marginTop: 10, width: '100%', height: 130, fontFamily: 'monospace', fontSize: 12,
-            border: '1px solid #e5e7eb', borderRadius: 8, padding: 10,
-            background: '#1e293b', color: '#fca5a5', resize: 'none', boxSizing: 'border-box' }}
-          onFocus={e => e.target.select()} />
-      </div>
-
-      {/* ── SQL Script ──────────────────────────────────────── */}
-      <div style={card}>
-        <div style={cardTitle}>📋 SQL สำหรับสร้างตารางทั้งหมด</div>
-        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 10 }}>
-          คัดลอกแล้วไปรันใน <b>Supabase → SQL Editor</b>
-        </div>
-        <button onClick={copySql} style={{ ...btnPrimary, background: copied ? '#16a34a' : '#1d4ed8' }}>
-          {copied ? '✅ คัดลอกแล้ว!' : '📋 คัดลอก SQL ทั้งหมด'}
-        </button>
-        <textarea
-          readOnly value={SQL_SCRIPT}
-          style={{
-            marginTop: 12, width: '100%', height: 200,
-            fontFamily: 'monospace', fontSize: 11,
-            border: '1px solid #e5e7eb', borderRadius: 8,
-            padding: '10px', background: '#1e293b', color: '#86efac',
-            resize: 'vertical', boxSizing: 'border-box',
-          }}
-          onFocus={e => e.target.select()}
-        />
-        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
-          กดค้างที่กล่องข้อความแล้วเลือก "เลือกทั้งหมด" ก็ได้ครับ
-        </div>
       </div>
 
       <a href="/" style={{
@@ -270,10 +217,14 @@ export default function SetupPage() {
 
 const card: React.CSSProperties = {
   background: 'white', border: '1px solid #e5e7eb',
-  borderRadius: 16, padding: '20px 18px', marginBottom: 16,
+  borderRadius: 16, padding: '18px 16px', marginBottom: 14,
+};
+const step: React.CSSProperties = {
+  display: 'inline-block', background: '#eff6ff', color: '#1d4ed8',
+  fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, marginBottom: 8,
 };
 const cardTitle: React.CSSProperties = {
-  fontWeight: 700, fontSize: 16, color: '#1e293b', marginBottom: 14,
+  fontWeight: 700, fontSize: 16, color: '#1e293b', marginBottom: 12,
 };
 const input: React.CSSProperties = {
   width: '100%', padding: '12px 14px', border: '1px solid #d1d5db',
@@ -285,5 +236,5 @@ const btnPrimary: React.CSSProperties = {
 };
 const btnSecondary: React.CSSProperties = {
   width: '100%', padding: '13px', background: '#f1f5f9', color: '#1e293b',
-  border: '1px solid #e2e8f0', borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: 'pointer',
+  border: '1px solid #e2e8f0', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer',
 };
