@@ -24,7 +24,7 @@ type Order = {
 // ─── Constants ────────────────────────────────────────────────────────────────
 const STATUSES = [
   'รับงานใหม่','กำลังออกแบบ','รอลูกค้าตรวจแบบ','ลูกค้าอนุมัติแล้ว',
-  'กำลังผลิต','ผลิตเสร็จ','แจ้งลูกค้ามารับ','ลูกค้ารับแล้ว',
+  'กำลังผลิต','ผลิตเสร็จ','แจ้งลูกค้ามารับ','กำลังเอาไปส่ง','ลูกค้ารับแล้ว',
   'ชำระเงินแล้ว','ค้างชำระ','ยกเลิก',
 ];
 
@@ -36,11 +36,17 @@ const STATUS_STYLE: Record<string, [string, string]> = {
   'กำลังผลิต':          ['#fae8ff','#7e22ce'],
   'ผลิตเสร็จ':          ['#d1fae5','#065f46'],
   'แจ้งลูกค้ามารับ':   ['#ede9fe','#5b21b6'],
+  'กำลังเอาไปส่ง':     ['#fff7ed','#c2410c'],
   'ลูกค้ารับแล้ว':     ['#ccfbf1','#0f766e'],
   'ชำระเงินแล้ว':      ['#f0fdf4','#16a34a'],
   'ค้างชำระ':           ['#fee2e2','#dc2626'],
   'ยกเลิก':             ['#f3f4f6','#6b7280'],
 };
+
+function statusesForOrder(o: { delivery_method?: string }): string[] {
+  if (o.delivery_method === 'จัดส่ง') return STATUSES.filter(s => s !== 'แจ้งลูกค้ามารับ');
+  return STATUSES.filter(s => s !== 'กำลังเอาไปส่ง');
+}
 
 const EMPTY_ORDER = {
   customer_id:'', title:'', order_type:'ป้ายไวนิล', detail:'',
@@ -1055,7 +1061,7 @@ export default function Home() {
                         <td>
                           <div className="rowActions">
                             <select value={o.status} onChange={e => changeStatus(o, e.target.value)}>
-                              {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                              {statusesForOrder(o).map(s => <option key={s} value={s}>{s}</option>)}
                             </select>
                             {Number(o.balance) > 0 && (
                               <button className="btnGreen" onClick={() => {
@@ -1973,7 +1979,7 @@ function PrintSlip({ order }: { order: Order }) {
 // ─── Kanban Board ────────────────────────────────────────────────────────────
 const KANBAN_COLS = [
   'รับงานใหม่','กำลังออกแบบ','รอลูกค้าตรวจแบบ','ลูกค้าอนุมัติแล้ว',
-  'กำลังผลิต','ผลิตเสร็จ','แจ้งลูกค้ามารับ','ลูกค้ารับแล้ว',
+  'กำลังผลิต','ผลิตเสร็จ','แจ้งลูกค้ามารับ','กำลังเอาไปส่ง','ลูกค้ารับแล้ว',
 ];
 function KanbanBoard({ orders, today, employees, onChangeStatus }: {
   orders: Order[]; today: string; employees: Employee[];
@@ -2490,7 +2496,7 @@ function EmployeeView({ emp, orders, editMode, message, error, loading, onLogout
                 <div style={{ marginTop:10, display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
                   <span style={{ fontSize:12, color:'var(--muted)', whiteSpace:'nowrap' }}>เปลี่ยนสถานะ:</span>
                   <select value={o.status} onChange={ev => onChangeStatus(o, ev.target.value)} style={{ flex:1, minWidth:160 }}>
-                    {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                    {statusesForOrder(o).map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
               )}
