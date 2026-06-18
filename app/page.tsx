@@ -94,13 +94,27 @@ function tryStripCol(data: Record<string, any>, msg: string): Record<string, any
   return out;
 }
 
+function tryFixTypeMismatch(data: Record<string, any>, msg: string): Record<string, any> | null {
+  // "invalid input syntax for type bigint: "someText"" — find field with that value and strip it
+  if (!msg.includes('invalid input syntax for type')) return null;
+  const m = msg.match(/invalid input syntax for type \w+: "([^"]+)"/);
+  if (!m) return null;
+  const badValue = m[1];
+  const out = { ...data };
+  for (const [k, v] of Object.entries(out)) {
+    if (String(v) === badValue) { delete out[k]; return out; }
+  }
+  return null;
+}
+
 async function dbInsert(table: string, data: Record<string, any>) {
   let d = applyMap(table, data);
   for (let i = 0; i < 8; i++) {
     const res = await supabase.from(table).insert(d).select().single();
     if (!res.error) return res;
-    if (tryLearn(table, res.error.message)) { d = applyMap(table, d); continue; }
-    const stripped = tryStripCol(d, res.error.message);
+    const msg = res.error.message;
+    if (tryLearn(table, msg)) { d = applyMap(table, d); continue; }
+    const stripped = tryStripCol(d, msg) ?? tryFixTypeMismatch(d, msg);
     if (stripped) { d = stripped; continue; }
     return res;
   }
