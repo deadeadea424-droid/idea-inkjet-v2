@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Employee, Order, StatusLog, STATUS_STYLE, STATUSES, fmtDate, fmtMoney, orderCode, savePin } from '@/lib/shared';
+import { Employee, Order, StatusLog, STATUS_STYLE, STATUSES, statusesForOrder, fmtDate, fmtMoney, orderCode, savePin } from '@/lib/shared';
 
 // ─── Status pill ──────────────────────────────────────────────────────────────
 function StatusPill({ status }: { status: string }) {
@@ -215,7 +215,7 @@ function EmployeeView({ emp, orders, onLogout, onLoad, loading }: {
                 <div style={{ marginTop: 10 }}>
                   <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>เปลี่ยนสถานะ:</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {STATUSES.filter(s => s !== o.status).map(s => {
+                    {statusesForOrder(o).filter(s => s !== o.status).map(s => {
                       const [bg, color] = STATUS_STYLE[s] || ['#e5e7eb', '#374151'];
                       return (
                         <button key={s} onClick={() => changeStatus(o, s)}
