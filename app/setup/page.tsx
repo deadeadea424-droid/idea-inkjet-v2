@@ -11,9 +11,9 @@ ALTER TABLE employees DISABLE ROW LEVEL SECURITY;
 ALTER TABLE orders DISABLE ROW LEVEL SECURITY;
 ALTER TABLE payments DISABLE ROW LEVEL SECURITY;`;
 
-const SCHEMA_FIX_SQL = `-- แก้ column changed_by ให้เป็น TEXT (ถ้าเป็น BIGINT อยู่)
-ALTER TABLE order_status_logs
-  ALTER COLUMN changed_by TYPE TEXT USING changed_by::text;`;
+const SCHEMA_FIX_SQL = `-- ลบ foreign key ก่อน แล้วเปลี่ยน type เป็น TEXT
+ALTER TABLE order_status_logs DROP CONSTRAINT IF EXISTS order_status_logs_changed_by_fkey;
+ALTER TABLE order_status_logs ALTER COLUMN changed_by TYPE TEXT USING changed_by::text;`;
 
 export default function SetupPage() {
   const [tests,        setTests]        = useState<TestResult[]>([]);
