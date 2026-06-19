@@ -1621,6 +1621,45 @@ export default function Home() {
         </Modal>
       )}
 
+      {followupModal && (
+        <Modal title={`ติดตามหนี้ — ${followupModal.customerName}`} onClose={() => setFollowupModal(null)}>
+          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            <div>
+              <label style={{ display:'block', fontSize:13, fontWeight:600, marginBottom:6, color:'#374151' }}>สถานะการติดตาม</label>
+              <select value={followupForm.status} onChange={e => setFollowupForm(f => ({ ...f, status: e.target.value }))}
+                style={{ width:'100%', padding:'10px 12px', borderRadius:8, border:'1px solid #d1d5db', fontSize:14 }}>
+                {[
+                  'ยังไม่ติดต่อ',
+                  'ติดต่อแล้ว รอชำระ',
+                  'นัดชำระแล้ว',
+                  'มีปัญหา / ติดต่อไม่ได้',
+                ].map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            {followupForm.status === 'นัดชำระแล้ว' && (
+              <div>
+                <label style={{ display:'block', fontSize:13, fontWeight:600, marginBottom:6, color:'#374151' }}>วันที่นัดชำระ</label>
+                <input type="date" value={followupForm.promisedDate}
+                  onChange={e => setFollowupForm(f => ({ ...f, promisedDate: e.target.value }))}
+                  style={{ width:'100%', padding:'10px 12px', borderRadius:8, border:'1px solid #d1d5db', fontSize:14, boxSizing:'border-box' }} />
+              </div>
+            )}
+            <div>
+              <label style={{ display:'block', fontSize:13, fontWeight:600, marginBottom:6, color:'#374151' }}>หมายเหตุ / บันทึก</label>
+              <textarea value={followupForm.note}
+                onChange={e => setFollowupForm(f => ({ ...f, note: e.target.value }))}
+                placeholder="เช่น โทรแล้วไม่รับ, บอกจะโอนวันศุกร์..."
+                rows={3}
+                style={{ width:'100%', padding:'10px 12px', borderRadius:8, border:'1px solid #d1d5db', fontSize:14, resize:'vertical', boxSizing:'border-box' }} />
+            </div>
+            <button className="btnGreen" style={{ padding:'13px', fontWeight:700, fontSize:15 }}
+              onClick={() => saveFollowup(followupModal.customerId)}>
+              บันทึกการติดตาม
+            </button>
+          </div>
+        </Modal>
+      )}
+
       {editCust && (
         <Modal title="แก้ไขลูกค้า" onClose={() => setEditCust(null)}>
           <form className="form" onSubmit={updateCustomer}>
