@@ -199,6 +199,11 @@ export default function Home() {
   const [printOrder,    setPrintOrder]    = useState<Order | null>(null);
   const [receiptOrder,  setReceiptOrder]  = useState<Order | null>(null);
   const [receiptType,   setReceiptType]   = useState<'cash'|'tax'>('cash');
+  const [followups, setFollowups] = useState<Record<number, { status: string; note: string; promisedDate: string; updatedAt: string }>>({});
+  const [followupModal, setFollowupModal] = useState<{ customerId: number; customerName: string } | null>(null);
+  const [followupForm, setFollowupForm] = useState({ status: 'ติดต่อแล้ว รอชำระ', note: '', promisedDate: '' });
+  const [unpaidFilter, setUnpaidFilter] = useState<'all'|'untouched'|'promised'|'overdue'>('all');
+  const [unpaidSort,   setUnpaidSort]   = useState<'balance'|'overdue'|'name'>('overdue');
   const [editCust,     setEditCust]     = useState<Customer | null>(null);
   const [editCustForm, setEditCustForm] = useState({ name:'', phone:'', line_id:'', contact_channel:'', address:'', tax_id:'' });
   const [editEmp,      setEditEmp]      = useState<Employee | null>(null);
@@ -258,6 +263,15 @@ export default function Home() {
       tax_id:  settingsMap['shop_tax_id']  || '',
       phone:   settingsMap['shop_phone']   || '',
     });
+
+    const followupMap: Record<number, { status: string; note: string; promisedDate: string; updatedAt: string }> = {};
+    Object.entries(settingsMap).forEach(([k, v]) => {
+      if (k.startsWith('followup_')) {
+        const id = Number(k.slice(9));
+        try { followupMap[id] = JSON.parse(v); } catch {}
+      }
+    });
+    setFollowups(followupMap);
 
     const custNorm: Customer[] = (c.data || []).map((x: any) => ({
       id: x.id, name: x.name ?? x.customer_name ?? '',
@@ -663,6 +677,15 @@ export default function Home() {
       if (logsFor === o.id) loadOrderLogs(o.id);
     }
     show('เปลี่ยนสถานะแล้ว'); load();
+  }
+
+  async function saveFollowup(customerId: number) {
+    const val = JSON.stringify({ ...followupForm, updatedAt: new Date().toISOString() });
+    const { error } = await supabase.from('app_settings').upsert({ key: `followup_${customerId}`, value: val });
+    if (error) { setError(error.message); return; }
+    setFollowups(prev => ({ ...prev, [customerId]: { ...followupForm, updatedAt: new Date().toISOString() } }));
+    setFollowupModal(null);
+    show('บันทึกการติดตามแล้ว');
   }
 
   async function recordPayment(e: React.FormEvent) {
@@ -1297,165 +1320,257 @@ export default function Home() {
         </section>
       )}
 
-      {tab === 'unpaid' && (
-        <section>
-          {/* Summary */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:20 }}>
-            {[
-              ['ลูกค้าค้างชำระ', `${unpaidByCustomer.length} ราย`, '#dc2626'],
-              ['งานค้างชำระ',    `${unpaidByCustomer.reduce((s,x)=>s+x.orders.length,0)} งาน`, '#c2410c'],
-              ['ยอดรวมทั้งหมด',  `${fmtMoney(unpaidByCustomer.reduce((s,x)=>s+x.totalBalance,0))} ฿`, '#7c3aed'],
-            ].map(([label, val, color]) => (
-              <div key={label as string} className="card" style={{ textAlign:'center', padding:'14px 10px' }}>
-                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>{label}</div>
-                <div style={{ fontSize:20, fontWeight:800, color: color as string }}>{val}</div>
-              </div>
-            ))}
-          </div>
+      {tab === 'unpaid' && (() => {
+        const FOLLOWUP_STATUSES = [
+          { value: 'ยังไม่ติดต่อ',            bg: '#f3f4f6', color: '#6b7280' },
+          { value: 'ติดต่อแล้ว รอชำระ',       bg: '#dbeafe', color: '#1d4ed8' },
+          { value: 'นัดชำระแล้ว',              bg: '#dcfce7', color: '#15803d' },
+          { value: 'มีปัญหา / ติดต่อไม่ได้',  bg: '#fee2e2', color: '#dc2626' },
+        ];
 
-          {unpaidByCustomer.length === 0 ? (
-            <div className="card" style={{ textAlign:'center', padding:48, color:'var(--muted)' }}>
-              <div style={{ fontSize:40, marginBottom:12 }}>🎉</div>
-              <div style={{ fontWeight:600 }}>ไม่มียอดค้างชำระ</div>
-              <div style={{ fontSize:13, marginTop:4 }}>ลูกค้าทุกคนชำระครบแล้ว</div>
+        let displayedUnpaid = [...unpaidByCustomer];
+
+        if (unpaidFilter === 'untouched') {
+          displayedUnpaid = displayedUnpaid.filter(x => !followups[x.customer.id] || followups[x.customer.id].status === 'ยังไม่ติดต่อ');
+        } else if (unpaidFilter === 'promised') {
+          displayedUnpaid = displayedUnpaid.filter(x => followups[x.customer.id]?.status === 'นัดชำระแล้ว');
+        } else if (unpaidFilter === 'overdue') {
+          displayedUnpaid = displayedUnpaid.filter(x => x.orders.some(o => {
+            if (o.payment_type === 'เครดิต') {
+              const d = new Date(o.due_date); d.setDate(d.getDate() + Number(o.credit_days || 30));
+              return d.toLocaleDateString('sv-SE') < today;
+            }
+            return !!o.due_date && o.due_date < today;
+          }));
+        }
+
+        if (unpaidSort === 'balance') {
+          displayedUnpaid.sort((a, b) => b.totalBalance - a.totalBalance);
+        } else if (unpaidSort === 'name') {
+          displayedUnpaid.sort((a, b) => a.customer.name.localeCompare(b.customer.name, 'th'));
+        } else {
+          displayedUnpaid.sort((a, b) => {
+            const aOv = a.orders.some(o => o.due_date && o.due_date < today) ? 1 : 0;
+            const bOv = b.orders.some(o => o.due_date && o.due_date < today) ? 1 : 0;
+            return bOv - aOv || b.totalBalance - a.totalBalance;
+          });
+        }
+
+        return (
+          <section>
+            {/* Summary */}
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:16 }}>
+              {[
+                ['ลูกค้าค้างชำระ', `${unpaidByCustomer.length} ราย`, '#dc2626'],
+                ['งานค้างชำระ',    `${unpaidByCustomer.reduce((s,x)=>s+x.orders.length,0)} งาน`, '#c2410c'],
+                ['ยอดรวมทั้งหมด',  `${fmtMoney(unpaidByCustomer.reduce((s,x)=>s+x.totalBalance,0))} ฿`, '#7c3aed'],
+              ].map(([label, val, color]) => (
+                <div key={label as string} className="card" style={{ textAlign:'center', padding:'14px 10px' }}>
+                  <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>{label}</div>
+                  <div style={{ fontSize:20, fontWeight:800, color: color as string }}>{val}</div>
+                </div>
+              ))}
             </div>
-          ) : (
-            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-              {unpaidByCustomer.map(({ customer, orders: custOrders, totalBalance, oldestDue }) => {
-                const hasCredit = custOrders.some(o => o.payment_type === 'เครดิต');
-                const hasCash   = custOrders.some(o => o.payment_type !== 'เครดิต');
 
-                // Credit payment due = due_date + credit_days
-                function creditPayDue(o: Order): string | null {
-                  if (o.payment_type !== 'เครดิต' || !o.due_date || !o.credit_days) return null;
-                  const d = new Date(o.due_date);
-                  d.setDate(d.getDate() + Number(o.credit_days));
-                  return d.toLocaleDateString('sv-SE');
-                }
+            {/* Sort + Filter controls */}
+            <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:16, alignItems:'center' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ fontSize:13, color:'var(--muted)', whiteSpace:'nowrap' }}>เรียงตาม:</span>
+                {(['overdue','balance','name'] as const).map(s => (
+                  <button key={s} className={unpaidSort === s ? 'btnSm btnGreen' : 'btnSm btn2'}
+                    onClick={() => setUnpaidSort(s)}>
+                    {s === 'overdue' ? 'เลยกำหนด' : s === 'balance' ? 'ยอดสูง' : 'ชื่อ'}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                {([
+                  ['all','ทั้งหมด'],['untouched','ยังไม่ติดต่อ'],['promised','นัดชำระ'],['overdue','มีปัญหา'],
+                ] as const).map(([v, label]) => (
+                  <button key={v} className={unpaidFilter === v ? 'btnSm btnGreen' : 'btnSm btn2'}
+                    onClick={() => setUnpaidFilter(v)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-                const isAnyOverdue = custOrders.some(o => {
-                  if (o.payment_type === 'เครดิต') {
-                    const cpd = creditPayDue(o);
-                    return !!cpd && cpd < today;
+            {unpaidByCustomer.length === 0 ? (
+              <div className="card" style={{ textAlign:'center', padding:48, color:'var(--muted)' }}>
+                <div style={{ fontSize:40, marginBottom:12 }}>🎉</div>
+                <div style={{ fontWeight:600 }}>ไม่มียอดค้างชำระ</div>
+                <div style={{ fontSize:13, marginTop:4 }}>ลูกค้าทุกคนชำระครบแล้ว</div>
+              </div>
+            ) : displayedUnpaid.length === 0 ? (
+              <div className="card" style={{ textAlign:'center', padding:32, color:'var(--muted)' }}>
+                <div style={{ fontSize:13 }}>ไม่มีรายการในกลุ่มที่เลือก</div>
+              </div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                {displayedUnpaid.map(({ customer, orders: custOrders, totalBalance }) => {
+                  const hasCredit = custOrders.some(o => o.payment_type === 'เครดิต');
+                  const hasCash   = custOrders.some(o => o.payment_type !== 'เครดิต');
+
+                  function creditPayDue(o: Order): string | null {
+                    if (o.payment_type !== 'เครดิต' || !o.due_date || !o.credit_days) return null;
+                    const d = new Date(o.due_date);
+                    d.setDate(d.getDate() + Number(o.credit_days));
+                    return d.toLocaleDateString('sv-SE');
                   }
-                  return !!o.due_date && o.due_date < today;
-                });
 
-                const reminderText = [
-                  `สวัสดีครับ คุณ${customer.name} 🙏`,
-                  `ทางร้าน Idea Inkjet ขอแจ้งเตือนยอดค้างชำระดังนี้ครับ`,
-                  ``,
-                  ...custOrders.map(o => {
-                    const cpd = creditPayDue(o);
-                    const payInfo = o.payment_type === 'เครดิต'
-                      ? ` [เครดิต ${o.credit_days} วัน${cpd ? ` ครบกำหนด ${fmtDate(cpd)}` : ''}]`
-                      : ` [เงินสด]`;
-                    return `• ${orderCode(o)} ${o.title}${payInfo}\n  ยอดค้าง: ${fmtMoney(Number(o.balance))} บาท`;
-                  }),
-                  ``,
-                  `ยอดรวมค้างชำระ: ${fmtMoney(totalBalance)} บาท`,
-                  `กรุณาติดต่อชำระเงินที่ร้านหรือโอนมาได้เลยนะครับ`,
-                  `ขอบคุณมากครับ 🙏 Idea Inkjet`,
-                ].join('\n');
+                  const isAnyOverdue = custOrders.some(o => {
+                    if (o.payment_type === 'เครดิต') {
+                      const cpd = creditPayDue(o);
+                      return !!cpd && cpd < today;
+                    }
+                    return !!o.due_date && o.due_date < today;
+                  });
 
-                return (
-                  <div key={customer.id} className="card"
-                    style={{ border: isAnyOverdue ? '1px solid #fca5a5' : '1px solid var(--line)', padding:'16px 18px' }}>
-                    {/* Customer header */}
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:8, marginBottom:8 }}>
-                      <div>
-                        <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-                          <span style={{ fontWeight:700, fontSize:16, color:'#1e293b' }}>{customer.name}</span>
-                          {hasCredit && <span style={{ fontSize:11, background:'#ede9fe', color:'#5b21b6', padding:'2px 8px', borderRadius:20, fontWeight:700 }}>เครดิต</span>}
-                          {hasCash   && <span style={{ fontSize:11, background:'#d1fae5', color:'#065f46', padding:'2px 8px', borderRadius:20, fontWeight:700 }}>เงินสด</span>}
+                  const reminderText = [
+                    `สวัสดีครับ คุณ${customer.name} 🙏`,
+                    `ทางร้าน Idea Inkjet ขอแจ้งเตือนยอดค้างชำระดังนี้ครับ`,
+                    ``,
+                    ...custOrders.map(o => {
+                      const cpd = creditPayDue(o);
+                      const payInfo = o.payment_type === 'เครดิต'
+                        ? ` [เครดิต ${o.credit_days} วัน${cpd ? ` ครบกำหนด ${fmtDate(cpd)}` : ''}]`
+                        : ` [เงินสด]`;
+                      return `• ${orderCode(o)} ${o.title}${payInfo}\n  ยอดค้าง: ${fmtMoney(Number(o.balance))} บาท`;
+                    }),
+                    ``,
+                    `ยอดรวมค้างชำระ: ${fmtMoney(totalBalance)} บาท`,
+                    `กรุณาติดต่อชำระเงินที่ร้านหรือโอนมาได้เลยนะครับ`,
+                    `ขอบคุณมากครับ 🙏 Idea Inkjet`,
+                  ].join('\n');
+
+                  const fu = followups[customer.id];
+                  const fuStatus = fu?.status || 'ยังไม่ติดต่อ';
+                  const fuStyle = FOLLOWUP_STATUSES.find(s => s.value === fuStatus) || FOLLOWUP_STATUSES[0];
+
+                  return (
+                    <div key={customer.id} className="card"
+                      style={{ border: isAnyOverdue ? '1px solid #fca5a5' : '1px solid var(--line)', padding:'16px 18px' }}>
+                      {/* Customer header */}
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:8, marginBottom:8 }}>
+                        <div>
+                          <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                            <span style={{ fontWeight:700, fontSize:16, color:'#1e293b' }}>{customer.name}</span>
+                            {hasCredit && <span style={{ fontSize:11, background:'#ede9fe', color:'#5b21b6', padding:'2px 8px', borderRadius:20, fontWeight:700 }}>เครดิต</span>}
+                            {hasCash   && <span style={{ fontSize:11, background:'#d1fae5', color:'#065f46', padding:'2px 8px', borderRadius:20, fontWeight:700 }}>เงินสด</span>}
+                          </div>
+                          <div style={{ fontSize:13, color:'var(--muted)', marginTop:2 }}>
+                            {customer.phone && <span>📞 {customer.phone}</span>}
+                            {customer.line_id && <span style={{ marginLeft:10 }}>LINE: {customer.line_id}</span>}
+                          </div>
                         </div>
-                        <div style={{ fontSize:13, color:'var(--muted)', marginTop:2 }}>
-                          {customer.phone && <span>📞 {customer.phone}</span>}
-                          {customer.line_id && <span style={{ marginLeft:10 }}>LINE: {customer.line_id}</span>}
+                        <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
+                          <div style={{ fontSize:20, fontWeight:800, color:'#dc2626' }}>{fmtMoney(totalBalance)} ฿</div>
+                          {isAnyOverdue && <div style={{ fontSize:11, color:'#dc2626' }}>⚠️ เลยกำหนดชำระ</div>}
+                          {/* Follow-up status badge */}
+                          <span style={{ fontSize:11, background: fuStyle.bg, color: fuStyle.color, padding:'2px 10px', borderRadius:20, fontWeight:700 }}>
+                            {fuStatus}
+                          </span>
                         </div>
                       </div>
-                      <div style={{ textAlign:'right' }}>
-                        <div style={{ fontSize:20, fontWeight:800, color:'#dc2626' }}>{fmtMoney(totalBalance)} ฿</div>
-                        {isAnyOverdue && <div style={{ fontSize:11, color:'#dc2626', marginTop:2 }}>⚠️ เลยกำหนดชำระ</div>}
-                      </div>
-                    </div>
 
-                    {/* Orders list */}
-                    <div style={{ borderTop:'1px solid #f3f4f6', paddingTop:10, marginBottom:12 }}>
-                      {custOrders.map(o => {
-                        const isCredit  = o.payment_type === 'เครดิต';
-                        const cpd       = creditPayDue(o);
-                        const payExpired = cpd ? cpd < today : (!isCredit && !!o.due_date && o.due_date < today);
-                        return (
-                          <div key={o.id} style={{ padding:'8px 0', borderBottom:'1px dashed #f3f4f6' }}>
-                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8, flexWrap:'wrap' }}>
-                              <div style={{ flex:1, minWidth:0 }}>
-                                <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-                                  <span style={{ fontSize:12, color:'var(--muted)' }}>{orderCode(o)}</span>
-                                  <span style={{ fontSize:14, fontWeight:600 }}>{o.title}</span>
-                                  {isCredit
-                                    ? <span style={{ fontSize:11, background:'#ede9fe', color:'#5b21b6', padding:'1px 7px', borderRadius:20, fontWeight:700, whiteSpace:'nowrap' }}>
-                                        เครดิต {o.credit_days} วัน
-                                      </span>
-                                    : <span style={{ fontSize:11, background:'#d1fae5', color:'#065f46', padding:'1px 7px', borderRadius:20, fontWeight:700 }}>
-                                        เงินสด
-                                      </span>
-                                  }
+                      {/* Follow-up info */}
+                      {fu && (fu.note || fu.promisedDate) && (
+                        <div style={{ background:'#f8fafc', borderRadius:8, padding:'8px 12px', marginBottom:10, fontSize:13 }}>
+                          {fu.promisedDate && <div style={{ color:'#15803d', fontWeight:600, marginBottom:2 }}>นัดชำระ: {fmtDate(fu.promisedDate)}</div>}
+                          {fu.note && <div style={{ color:'#374151' }}>{fu.note}</div>}
+                          {fu.updatedAt && <div style={{ color:'#9ca3af', fontSize:11, marginTop:4 }}>อัปเดต: {new Date(fu.updatedAt).toLocaleDateString('th-TH', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}</div>}
+                        </div>
+                      )}
+
+                      {/* Orders list */}
+                      <div style={{ borderTop:'1px solid #f3f4f6', paddingTop:10, marginBottom:12 }}>
+                        {custOrders.map(o => {
+                          const isCredit  = o.payment_type === 'เครดิต';
+                          const cpd       = creditPayDue(o);
+                          const payExpired = cpd ? cpd < today : (!isCredit && !!o.due_date && o.due_date < today);
+                          return (
+                            <div key={o.id} style={{ padding:'8px 0', borderBottom:'1px dashed #f3f4f6' }}>
+                              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8, flexWrap:'wrap' }}>
+                                <div style={{ flex:1, minWidth:0 }}>
+                                  <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                                    <span style={{ fontSize:12, color:'var(--muted)' }}>{orderCode(o)}</span>
+                                    <span style={{ fontSize:14, fontWeight:600 }}>{o.title}</span>
+                                    {isCredit
+                                      ? <span style={{ fontSize:11, background:'#ede9fe', color:'#5b21b6', padding:'1px 7px', borderRadius:20, fontWeight:700, whiteSpace:'nowrap' }}>
+                                          เครดิต {o.credit_days} วัน
+                                        </span>
+                                      : <span style={{ fontSize:11, background:'#d1fae5', color:'#065f46', padding:'1px 7px', borderRadius:20, fontWeight:700 }}>
+                                          เงินสด
+                                        </span>
+                                    }
+                                  </div>
+                                  <div style={{ fontSize:12, marginTop:3, color: payExpired ? '#dc2626' : 'var(--muted)' }}>
+                                    {isCredit
+                                      ? cpd
+                                        ? <>{payExpired ? '⚠️ ' : ''}ครบกำหนดชำระ {fmtDate(cpd)}{payExpired ? ' (เลยกำหนด)' : ''}</>
+                                        : 'ยังไม่ระบุวันนัดส่ง'
+                                      : o.due_date
+                                        ? <>นัดส่ง {fmtDate(o.due_date)}{payExpired ? ' ⚠️ เลยกำหนด' : ''}</>
+                                        : null
+                                    }
+                                  </div>
                                 </div>
-                                <div style={{ fontSize:12, marginTop:3, color: payExpired ? '#dc2626' : 'var(--muted)' }}>
-                                  {isCredit
-                                    ? cpd
-                                      ? <>{payExpired ? '⚠️ ' : ''}ครบกำหนดชำระ {fmtDate(cpd)}{payExpired ? ' (เลยกำหนด)' : ''}</>
-                                      : 'ยังไม่ระบุวันนัดส่ง'
-                                    : o.due_date
-                                      ? <>นัดส่ง {fmtDate(o.due_date)}{payExpired ? ' ⚠️ เลยกำหนด' : ''}</>
-                                      : null
-                                  }
+                                <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
+                                  <b style={{ color:'#dc2626', whiteSpace:'nowrap' }}>{fmtMoney(Number(o.balance))} ฿</b>
+                                  <button className="btnSm btnGreen"
+                                    onClick={() => { setPayingOrder(o); setPayForm({ amount: String(o.balance), method: isCredit ? 'โอนธนาคาร' : 'เงินสด', received_by:'เจ้าของร้าน' }); }}>
+                                    รับชำระ
+                                  </button>
                                 </div>
-                              </div>
-                              <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
-                                <b style={{ color:'#dc2626', whiteSpace:'nowrap' }}>{fmtMoney(Number(o.balance))} ฿</b>
-                                <button className="btnSm btnGreen"
-                                  onClick={() => { setPayingOrder(o); setPayForm({ amount: String(o.balance), method: isCredit ? 'โอนธนาคาร' : 'เงินสด', received_by:'เจ้าของร้าน' }); }}>
-                                  รับชำระ
-                                </button>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                          );
+                        })}
+                      </div>
 
-                    {/* Actions */}
-                    <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                      <button className="btnSm btnGreen"
-                        onClick={() => {
-                          const biggest = [...custOrders].sort((a,b)=>Number(b.balance)-Number(a.balance))[0];
-                          setPayingOrder(biggest);
-                          setPayForm({ amount: String(biggest.balance), method:'เงินสด', received_by:'เจ้าของร้าน' });
-                        }}>
-                        💰 รับชำระทั้งหมด
-                      </button>
-                      <button className="btnSm btn2"
-                        onClick={() => navigator.clipboard?.writeText(reminderText).then(() => show('คัดลอกข้อความแล้ว'))}>
-                        📋 คัดลอกข้อความแจ้งเตือน
-                      </button>
-                      {customer.line_id && (
-                        <a href={`https://line.me/R/ti/p/${customer.line_id}`} target="_blank" rel="noopener noreferrer"
-                          style={{ textDecoration:'none' }}>
-                          <button className="btnSm" style={{ background:'#16a34a' }}>
-                            💬 เปิด LINE
-                          </button>
-                        </a>
-                      )}
+                      {/* Actions */}
+                      <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                        <button className="btnSm btnGreen"
+                          onClick={() => {
+                            const biggest = [...custOrders].sort((a,b)=>Number(b.balance)-Number(a.balance))[0];
+                            setPayingOrder(biggest);
+                            setPayForm({ amount: String(biggest.balance), method:'เงินสด', received_by:'เจ้าของร้าน' });
+                          }}>
+                          💰 รับชำระทั้งหมด
+                        </button>
+                        <button className="btnSm btn2"
+                          onClick={() => navigator.clipboard?.writeText(reminderText).then(() => show('คัดลอกข้อความแล้ว'))}>
+                          📋 คัดลอกข้อความแจ้งเตือน
+                        </button>
+                        {customer.line_id && (
+                          <a href={`https://line.me/R/ti/p/${customer.line_id}`} target="_blank" rel="noopener noreferrer"
+                            style={{ textDecoration:'none' }}>
+                            <button className="btnSm" style={{ background:'#16a34a' }}>
+                              💬 เปิด LINE
+                            </button>
+                          </a>
+                        )}
+                        <button className="btnSm btn2"
+                          onClick={() => {
+                            const existing = followups[customer.id];
+                            setFollowupForm({
+                              status: existing?.status || 'ติดต่อแล้ว รอชำระ',
+                              note: existing?.note || '',
+                              promisedDate: existing?.promisedDate || '',
+                            });
+                            setFollowupModal({ customerId: customer.id, customerName: customer.name });
+                          }}>
+                          📝 บันทึกการติดตาม
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      )}
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        );
+      })()}
 
       {/* ═══ MODALS ════════════════════════════════════════════════════════════ */}
       {editingOrder && (
