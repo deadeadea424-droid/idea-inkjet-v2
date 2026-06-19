@@ -32,7 +32,7 @@ function LogTimeline({ logs, loading, logsFor, orderId }: { logs: StatusLog[]; l
             {l.changed_by && <span style={{ marginLeft: 6, color: '#6b7280' }}>· โดย {l.changed_by}</span>}
             {l.note && <span style={{ marginLeft: 6, color: '#6b7280' }}>{l.note}</span>}
             <div style={{ color: '#9ca3af', fontSize: 11 }}>
-              {new Date(l.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
+              {new Date(l.created_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' })}
             </div>
           </div>
         </div>

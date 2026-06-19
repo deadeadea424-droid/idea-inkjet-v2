@@ -64,6 +64,14 @@ const fmtDate  = (d?: string) => {
   const [y,m,day] = d.split('-').map(Number);
   return new Date(y, m - 1, day).toLocaleDateString('th-TH', { year:'numeric', month:'short', day:'numeric' });
 };
+const fmtDateTime = (d?: string) => {
+  if (!d) return '-';
+  return new Date(d).toLocaleString('th-TH', {
+    timeZone: 'Asia/Bangkok', year:'numeric', month:'short',
+    day:'numeric', hour:'2-digit', minute:'2-digit',
+  });
+};
+const todayThLong = () => new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', year:'numeric', month:'long', day:'numeric' });
 const orderCode = (o: Order) => o.order_code || `JOB-${String(o.id).padStart(4,'0')}`;
 
 // ─── Self-healing DB layer ────────────────────────────────────────────────────
@@ -1338,7 +1346,7 @@ export default function Home() {
           displayedUnpaid = displayedUnpaid.filter(x => x.orders.some(o => {
             if (o.payment_type === 'เครดิต') {
               const d = new Date(o.due_date); d.setDate(d.getDate() + Number(o.credit_days || 30));
-              return d.toLocaleDateString('sv-SE') < today;
+              return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }) < today;
             }
             return !!o.due_date && o.due_date < today;
           }));
@@ -1415,7 +1423,7 @@ export default function Home() {
                     if (o.payment_type !== 'เครดิต' || !o.due_date || !o.credit_days) return null;
                     const d = new Date(o.due_date);
                     d.setDate(d.getDate() + Number(o.credit_days));
-                    return d.toLocaleDateString('sv-SE');
+                    return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
                   }
 
                   const isAnyOverdue = custOrders.some(o => {
@@ -1478,7 +1486,7 @@ export default function Home() {
                         <div style={{ background:'#f8fafc', borderRadius:8, padding:'8px 12px', marginBottom:10, fontSize:13 }}>
                           {fu.promisedDate && <div style={{ color:'#15803d', fontWeight:600, marginBottom:2 }}>นัดชำระ: {fmtDate(fu.promisedDate)}</div>}
                           {fu.note && <div style={{ color:'#374151' }}>{fu.note}</div>}
-                          {fu.updatedAt && <div style={{ color:'#9ca3af', fontSize:11, marginTop:4 }}>อัปเดต: {new Date(fu.updatedAt).toLocaleDateString('th-TH', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}</div>}
+                          {fu.updatedAt && <div style={{ color:'#9ca3af', fontSize:11, marginTop:4 }}>อัปเดต: {fmtDateTime(fu.updatedAt)}</div>}
                         </div>
                       )}
 
@@ -2068,7 +2076,7 @@ function LogTimeline({ logs, loading, logsFor, orderId, tableReady }: {
             {l.changed_by && <span className="logNote"> · โดย {l.changed_by}</span>}
             {l.note && <span className="logNote">{l.note}</span>}
             <span className="logTime">
-              {new Date(l.created_at).toLocaleString('th-TH', { dateStyle:'short', timeStyle:'short' })}
+              {fmtDateTime(l.created_at)}
             </span>
           </div>
         </div>
@@ -2125,7 +2133,7 @@ function PrintSlip({ order }: { order: Order }) {
         <div className="slipSign"><div className="signLine" /><span>ลายเซ็นลูกค้า</span></div>
         <div className="slipSign"><div className="signLine" /><span>ลายเซ็นพนักงาน</span></div>
       </div>
-      <div className="slipFooter">พิมพ์วันที่ {new Date().toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' })}</div>
+      <div className="slipFooter">พิมพ์วันที่ {todayThLong()}</div>
     </div>
   );
 }
@@ -2375,7 +2383,7 @@ function ShopSettingsManager({ settings, onSave }: { settings: ShopInfo; onSave:
 function CashReceipt({ order, shop }: { order: Order; shop: ShopInfo }) {
   const code     = orderCode(order);
   const paid     = Number(order.price) - Number(order.balance);
-  const today    = new Date().toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
+  const today    = todayThLong();
   const receiptNo = `REC-${String(order.id).padStart(4,'0')}`;
   return (
     <div className="slip">
@@ -2424,7 +2432,7 @@ function CashReceipt({ order, shop }: { order: Order; shop: ShopInfo }) {
 // ─── Tax Invoice ──────────────────────────────────────────────────────────────
 function TaxInvoice({ order, shop }: { order: Order; shop: ShopInfo }) {
   const code     = orderCode(order);
-  const today    = new Date().toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
+  const today    = todayThLong();
   const invoiceNo = `INV-${String(order.id).padStart(4,'0')}`;
   const price    = Number(order.price);
   const beforeVat = Math.round(price / 1.07 * 100) / 100;
