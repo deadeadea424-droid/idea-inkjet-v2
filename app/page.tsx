@@ -857,6 +857,10 @@ export default function Home() {
           </div>
         </div>
         <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          {/* Calc link */}
+          <a href="/calc" style={{ fontSize:16, padding:'6px 10px', textDecoration:'none',
+            background:'var(--card)', border:'1px solid var(--line)', borderRadius:8, lineHeight:1 }}
+            title="คำนวณราคาป้าย">🧮</a>
           {/* Notification Bell */}
           <div style={{ position:'relative' }}>
             <button className="btnSm btn2" onClick={() => setNotifOpen(v => !v)} style={{ fontSize:16, padding:'6px 10px' }}>
