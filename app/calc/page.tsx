@@ -15,6 +15,8 @@ const DEFAULT_MATERIALS: Material[] = [
   { id: 'acrylic3_engrave', name: 'อะคริลิค 3 มิล สลัก', pricePerSqm: 3500 },
   { id: 'future3', name: 'ฟิวเจอร์บอร์ด 3 มม.', pricePerSqm: 180 },
   { id: 'future5', name: 'ฟิวเจอร์บอร์ด 5 มม.', pricePerSqm: 220 },
+  { id: 'sticker_future5', name: 'สติ๊กเกอร์รีดฟิวเจอร์บอร์ด 5 มม.', pricePerSqm: 500 },
+  { id: 'sticker_foam55', name: 'สติ๊กเกอร์รีดโฟมบอร์ด 5.5 มม.', pricePerSqm: 500 },
   { id: 'sticker', name: 'สติ๊กเกอร์ทั่วไป', pricePerSqm: 120 },
   { id: 'sticker_clear', name: 'สติ๊กเกอร์ใส', pricePerSqm: 160 },
   { id: 'xbanner', name: 'X-Banner (ผ้า + โครง)', pricePerSqm: 0 },
@@ -32,7 +34,7 @@ const DEFAULT_FINISHING: Finishing[] = [
 
 const fmt = (n: number) => Math.round(n).toLocaleString('th-TH');
 
-const MATERIALS_VER = 'v4';
+const MATERIALS_VER = 'v5';
 
 function useLocalStorage<T>(key: string, init: T, version?: string): [T, (v: T) => void] {
   const [val, setVal] = useState<T>(init);
@@ -299,8 +301,14 @@ export default function CalcPage() {
             </div>
           </div>
 
+          <div style={{ marginTop: 14, padding: '10px 12px', background: '#1e3a5f', borderRadius: 8,
+            fontSize: 12, color: '#93c5fd', lineHeight: 1.6 }}>
+            ⚠️ ชิ้นงานเล็กหรือมีรายละเอียดมาก ใช้เวลาทำนานกว่า<br/>
+            ราคาอาจเพิ่มขึ้นตามดุลพินิจของช่าง
+          </div>
+
           <button onClick={copyResult} style={{
-            marginTop: 16, width: '100%', padding: '12px', borderRadius: 10, border: 'none', cursor: 'pointer',
+            marginTop: 12, width: '100%', padding: '12px', borderRadius: 10, border: 'none', cursor: 'pointer',
             background: copied ? '#16a34a' : '#3b82f6', color: 'white', fontWeight: 700, fontSize: 15,
           }}>
             {copied ? '✅ คัดลอกแล้ว!' : '📋 คัดลอกผลลัพธ์'}
