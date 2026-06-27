@@ -12,24 +12,34 @@ function CalcLogin({ onLogin }: { onLogin: (empId: number, empName: string) => v
   const [errMsg, setErrMsg]   = useState('');
   const [checking, setChecking] = useState(false);
 
+  const OWNER_ID = 0; // sentinel for owner login
+
   useEffect(() => {
     async function loadEmps() {
       const [empRes, settingsRes] = await Promise.all([
         supabase.from('employees').select('*').order('name'),
-        supabase.from('app_settings').select('key, value').like('key', 'calc_emp_%'),
+        supabase.from('app_settings').select('key, value').in('key', [
+          ...Array.from({ length: 100 }, (_, i) => `calc_emp_${i + 1}`),
+          'owner_pin',
+        ]),
       ]);
+      const allSettings: Record<string, string> = {};
+      (settingsRes.data ?? []).forEach((r: any) => { allSettings[r.key] = r.value; });
+
       const accessSet = new Set<number>(
-        (settingsRes.data ?? [])
-          .filter(r => r.value === 'true')
-          .map(r => Number(r.key.replace('calc_emp_', '')))
+        Object.entries(allSettings)
+          .filter(([k, v]) => k.startsWith('calc_emp_') && v === 'true')
+          .map(([k]) => Number(k.replace('calc_emp_', '')))
       );
       const raw = (empRes.data ?? []).filter((e: any) => accessSet.has(Number(e.id)));
-      const list = raw.map((e: any) => ({
+      const empList = raw.map((e: any) => ({
         id: Number(e.id),
         name: e.name || e.employee_name || `พนักงาน ${e.id}`,
       }));
+      // Always add owner at the top
+      const list = [{ id: OWNER_ID, name: '👑 เจ้าของร้าน' }, ...empList];
       setEmployees(list);
-      if (list.length > 0) setEmpId(list[0].id);
+      setEmpId(OWNER_ID);
       setLoading(false);
     }
     loadEmps();
@@ -37,19 +47,31 @@ function CalcLogin({ onLogin }: { onLogin: (empId: number, empName: string) => v
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!empId) return;
+    if (empId === '') return;
     setChecking(true); setErrMsg('');
+
+    const isOwner = empId === OWNER_ID;
+    const pinKey  = isOwner ? 'owner_pin' : `pin_emp_${empId}`;
     const { data } = await supabase
-      .from('app_settings').select('value').eq('key', `pin_emp_${empId}`).maybeSingle();
+      .from('app_settings').select('value').eq('key', pinKey).maybeSingle();
     setChecking(false);
-    if (!data?.value) { setErrMsg('พนักงานนี้ยังไม่ได้ตั้งรหัส กรุณาติดต่อแอดมิน'); return; }
+
+    if (!data?.value) {
+      setErrMsg(isOwner ? 'ยังไม่ได้ตั้งรหัสเจ้าของร้าน กรุณาตั้งที่ /setup' : 'พนักงานนี้ยังไม่ได้ตั้งรหัส กรุณาติดต่อแอดมิน');
+      return;
+    }
     if (data.value !== pin) { setErrMsg('รหัสไม่ถูกต้อง กรุณาลองใหม่'); setPin(''); return; }
+
     const emp = employees.find(e => e.id === empId);
-    const session = { empId, empName: emp?.name ?? '', ts: Date.now() };
+    const empName = emp?.name ?? '';
+    const session = { empId, empName, ts: Date.now() };
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    // Log access to database (fire-and-forget)
-    supabase.from('calc_access_logs').insert({ employee_id: empId, employee_name: emp?.name ?? '' });
-    onLogin(empId as number, emp?.name ?? '');
+    // Log access (fire-and-forget; owner has no employee_id)
+    supabase.from('calc_access_logs').insert({
+      employee_id:   isOwner ? null : empId,
+      employee_name: isOwner ? 'เจ้าของร้าน' : empName,
+    });
+    onLogin(empId as number, empName);
   }
 
   if (loading) return (
