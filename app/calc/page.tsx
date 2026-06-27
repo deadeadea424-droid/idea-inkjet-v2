@@ -250,6 +250,7 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     pricePerPiece: number; total: number; vinylMin?: string; minTotalApplied?: boolean;
   } | null>(null);
   const [parseCopied, setParseCopied] = useState(false);
+  const [parsing, setParsing] = useState(false);
   const [ownerPin, setOwnerPin] = useState('');
   const [matUnlocked, setMatUnlocked] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
@@ -354,78 +355,93 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     navigator.clipboard?.writeText(lines.join('\n')).then(() => { setCartCopied(true); setTimeout(() => setCartCopied(false), 2500); });
   }
 
-  function parseAndApply() {
-    if (!parseText.trim()) return;
-    const text = parseText;
+  function kwMatch(text: string): { matId?: string; parsedW: number; parsedH: number; du?: 'cm'|'m'|'in'|'ft'; parsedQ: number } {
     const tl = text.toLowerCase();
-    const info: string[] = [];
-
-    // ── Material matching (weighted keyword score) ──
     let bestMatId: string | undefined;
     let bestScore = 0;
     for (const m of materials) {
-      const nameWords = m.name.toLowerCase().split(/\s+/).filter(w => w.length >= 1);
-      const kws = [...new Set([
-        m.name.toLowerCase(),
-        ...nameWords,
-        ...(MAT_KEYWORDS[m.id] ?? []).map(k => k.toLowerCase()),
-      ])];
+      const kws = [...new Set([m.name.toLowerCase(), ...m.name.toLowerCase().split(/\s+/), ...(MAT_KEYWORDS[m.id] ?? []).map(k => k.toLowerCase())])];
       let score = 0;
-      for (const kw of kws) { if (tl.includes(kw)) score += kw.length * 2; }
+      for (const kw of kws) if (tl.includes(kw)) score += kw.length * 2;
       if (score > bestScore) { bestScore = score; bestMatId = m.id; }
     }
-    const parsedMat = (bestMatId && bestScore > 0)
-      ? materials.find(m => m.id === bestMatId)!
-      : null;
-    if (parsedMat) { setMatId(parsedMat.id); info.push(`วัสดุ: ${parsedMat.name}`); }
-
-    // ── Dimension parsing ───────────────────────────
     const dimMatch =
       text.match(/(\d+(?:\.\d+)?)\s*[xX×*]\s*(\d+(?:\.\d+)?)/) ??
       text.match(/กว้าง\s*(\d+(?:\.\d+)?)[^0-9]{0,10}(?:สูง|ยาว)\s*(\d+(?:\.\d+)?)/) ??
       text.match(/(\d+(?:\.\d+)?)\s*คูณ\s*(\d+(?:\.\d+)?)/);
-    let parsedW = 0, parsedH = 0;
-    let du: 'cm' | 'm' | 'in' | 'ft' | undefined;
+    let parsedW = 0, parsedH = 0, du: 'cm'|'m'|'in'|'ft'|undefined;
     if (dimMatch) {
       parsedW = parseFloat(dimMatch[1]) || 0;
       parsedH = parseFloat(dimMatch[2]) || 0;
-      setWidth(dimMatch[1]);
-      setHeight(dimMatch[2]);
-      const around = text.slice(
-        Math.max(0, (dimMatch.index ?? 0) - 5),
-        (dimMatch.index ?? 0) + dimMatch[0].length + 20,
-      ) + ' ' + text;
+      const around = text.slice(Math.max(0, (dimMatch.index ?? 0) - 5), (dimMatch.index ?? 0) + dimMatch[0].length + 20) + ' ' + text;
       if (/ซม|ซ\.ม\.?|centimeter|cm/i.test(around)) du = 'cm';
       else if (/นิ้ว|inch|"/i.test(around)) du = 'in';
       else if (/ฟุต|feet|foot|ft|'/i.test(around)) du = 'ft';
       else if (/เมตร|meter|metre|\bm\b/i.test(around)) du = 'm';
-      if (du) setUnit(du);
-      info.push(`ขนาด: ${dimMatch[1]}×${dimMatch[2]}${du ? ' ' + du : ''}`);
     }
-
-    // ── Quantity parsing ─────────────────────────────
     const qtyMatch =
       text.match(/(\d+)\s*(?:ผืน|ชิ้น|แผ่น|อัน|ตัว|รูป|ใบ|pcs?|piece)/i) ??
       text.match(/จำนวน\s*[:\s]*(\d+)/i);
-    let parsedQ = 1;
-    if (qtyMatch) {
-      parsedQ = Math.max(1, parseInt(qtyMatch[1]) || 1);
-      setQty(qtyMatch[1]);
-      info.push(`จำนวน: ${qtyMatch[1]}`);
+    const parsedQ = qtyMatch ? Math.max(1, parseInt(qtyMatch[1]) || 1) : 1;
+    return { matId: bestScore > 0 ? bestMatId : undefined, parsedW, parsedH, du, parsedQ };
+  }
+
+  async function parseAndApply() {
+    if (!parseText.trim()) return;
+    const text = parseText;
+    setParsing(true);
+    setParseInfo([]);
+
+    // ── Try AI first ─────────────────────────────────
+    let ai: { matId?: string; width?: string; height?: string; unit?: string; qty?: string } | null = null;
+    try {
+      const res = await fetch('/api/parse-calc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      if (res.ok) ai = await res.json();
+    } catch {}
+    setParsing(false);
+
+    const info: string[] = [];
+
+    // ── Material ─────────────────────────────────────
+    const kw = kwMatch(text);
+    const aiMatId = ai?.matId && materials.find(m => m.id === ai!.matId) ? ai.matId : undefined;
+    const resolvedMatId = aiMatId ?? kw.matId;
+    const parsedMat = resolvedMatId ? materials.find(m => m.id === resolvedMatId) ?? null : null;
+    if (parsedMat) { setMatId(parsedMat.id); info.push(`วัสดุ: ${parsedMat.name}`); }
+
+    // ── Dimensions ───────────────────────────────────
+    let parsedW = 0, parsedH = 0, du: 'cm'|'m'|'in'|'ft'|undefined;
+    const aiW = ai?.width ? parseFloat(ai.width) : 0;
+    const aiH = ai?.height ? parseFloat(ai.height) : 0;
+    const aiU = ai?.unit && ['cm','m','in','ft'].includes(ai.unit) ? ai.unit as typeof du : undefined;
+    if (aiW > 0 && aiH > 0) {
+      parsedW = aiW; parsedH = aiH; du = aiU;
+      setWidth(String(aiW)); setHeight(String(aiH));
+      if (du) setUnit(du);
+      info.push(`ขนาด: ${aiW}×${aiH}${du ? ' ' + du : ''}`);
+    } else if (kw.parsedW > 0 && kw.parsedH > 0) {
+      parsedW = kw.parsedW; parsedH = kw.parsedH; du = kw.du;
+      setWidth(String(kw.parsedW)); setHeight(String(kw.parsedH));
+      if (du) setUnit(du);
+      info.push(`ขนาด: ${kw.parsedW}×${kw.parsedH}${du ? ' ' + du : ''}`);
     }
 
-    // ── Inline price computation ─────────────────────
+    // ── Quantity ─────────────────────────────────────
+    const aiQ = ai?.qty ? Math.max(1, parseInt(ai.qty) || 1) : 0;
+    const parsedQ = aiQ > 0 ? aiQ : kw.parsedQ;
+    if (parsedQ > 1 || aiQ > 0 || kw.parsedQ > 1) {
+      setQty(String(parsedQ)); info.push(`จำนวน: ${parsedQ}`);
+    }
+
+    // ── Price computation ─────────────────────────────
     const activeMat = parsedMat ?? (materials.find(m => m.id === matId) ?? materials[0]);
     const activeUnit = du ?? unit;
-    const toM2 = (n: number) =>
-      activeUnit === 'cm' ? n / 100 : activeUnit === 'in' ? n * 0.0254 : activeUnit === 'ft' ? n * 0.3048 : n;
+    const toM2 = (n: number) => activeUnit === 'cm' ? n/100 : activeUnit === 'in' ? n*0.0254 : activeUnit === 'ft' ? n*0.3048 : n;
     const parsedSqm = toM2(parsedW) * toM2(parsedH);
-
     const isParsedFixed = activeMat.fixedPrice !== undefined;
     const isParsedVinyl = activeMat.id.startsWith('vinyl_');
     const parsedFp = parseFloat(fixedPrices[activeMat.id] ?? '') || activeMat.fixedPrice || 0;
     const parsedBase = isParsedFixed ? parsedFp : activeMat.pricePerSqm * parsedSqm;
-
     let parsedPpp = parsedBase;
     let parsedVinylMin = '';
     if (isParsedVinyl && parsedBase > 0) {
@@ -440,7 +456,7 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     if ((parsedSqm > 0 || isParsedFixed) && !activeMat.quoteOnly) {
       setParseResult({
         matName: activeMat.name, isFixed: isParsedFixed, isQuote: false,
-        dim: dimMatch ? `${dimMatch[1]}×${dimMatch[2]}${du ? ' ' + du : ''}` : undefined,
+        dim: parsedW > 0 ? `${parsedW}×${parsedH}${du ? ' ' + du : ''}` : undefined,
         sqm: parsedSqm, qty: parsedQ, unitWord,
         pricePerPiece: parsedPpp, total: parsedTotal,
         vinylMin: parsedVinylMin || undefined,
@@ -449,7 +465,6 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     } else {
       setParseResult(null);
     }
-
     setParseInfo(info.length > 0 ? info : ['ไม่พบข้อมูล — ลองพิมพ์ชื่อวัสดุ ขนาด หรือจำนวน']);
   }
 
@@ -482,11 +497,11 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
           rows={2}
           style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.7 }}
         />
-        <button onClick={parseAndApply} style={{
+        <button onClick={parseAndApply} disabled={parsing} style={{
           marginTop: 8, width: '100%', padding: '10px', borderRadius: 10, border: 'none',
-          cursor: 'pointer', background: '#7c3aed', color: 'white', fontWeight: 700, fontSize: 14,
+          cursor: parsing ? 'default' : 'pointer', background: parsing ? '#a78bfa' : '#7c3aed', color: 'white', fontWeight: 700, fontSize: 14,
         }}>
-          ✨ ใส่ข้อมูลอัตโนมัติ
+          {parsing ? '🤖 กำลังวิเคราะห์...' : '✨ ใส่ข้อมูลอัตโนมัติ (AI)'}
         </button>
         {parseInfo.length > 0 && (
           <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
