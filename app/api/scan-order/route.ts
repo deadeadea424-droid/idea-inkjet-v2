@@ -1,12 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { createClient } from '@supabase/supabase-js';
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+async function getApiKey(): Promise<string | null> {
+  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
+  try {
+    const sb = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co',
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key',
+    );
+    const { data } = await sb.from('app_settings').select('value').eq('key', 'anthropic_api_key').maybeSingle();
+    return data?.value ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(req: NextRequest) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ ok: false, error: 'ไม่พบ ANTHROPIC_API_KEY — กรุณาตั้งค่าใน Vercel Environment Variables' }, { status: 500 });
+  const apiKey = await getApiKey();
+  if (!apiKey) {
+    return NextResponse.json({ ok: false, error: 'ไม่พบ API Key — กรุณาตั้งค่าที่หน้า /setup ขั้นตอนที่ 4' }, { status: 500 });
   }
+  const client = new Anthropic({ apiKey });
 
   const { imageBase64, mediaType } = await req.json();
   if (!imageBase64 || !mediaType) {
