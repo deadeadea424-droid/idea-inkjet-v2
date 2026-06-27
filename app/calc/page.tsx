@@ -174,8 +174,8 @@ const MAT_KEYWORDS: Record<string, string[]> = {
   acrylic3_engrave: ['อะคริลิค', 'สลัก', 'engrave'],
   future3:          ['ฟิวเจอร์', 'ฟิวเจอร์บอร์ด', '3มม', '3 มม', 'future 3'],
   future5:          ['ฟิวเจอร์', 'ฟิวเจอร์บอร์ด', '5มม', '5 มม', 'future 5'],
-  sticker_future5:  ['สติ๊กเกอร์', 'รีด', 'ฟิวเจอร์', 'รีดฟิวเจอร์', 'สติ๊กเกอร์รีด'],
-  sticker_foam55:   ['สติ๊กเกอร์', 'รีด', 'โฟม', 'โฟมบอร์ด', 'รีดโฟม'],
+  sticker_future5:  ['สติ๊กเกอร์', 'รีด', 'ฟิวเจอร์', 'รีดฟิวเจอร์', 'สติ๊กเกอร์รีด', 'สติ๊กเกอร์ฟิวเจอร์', 'สติ๊กเกอร์ที่ฟิวเจอร์', 'สติ๊กเกอร์รีดฟิวเจอร์บอร์ด'],
+  sticker_foam55:   ['สติ๊กเกอร์', 'รีด', 'โฟม', 'โฟมบอร์ด', 'รีดโฟม', 'สติ๊กเกอร์โฟม', 'สติ๊กเกอร์ที่โฟม'],
   sticker_print:    ['สติ๊กเกอร์', 'พิมพ์', 'สติ๊กเกอร์พิมพ์', 'sticker'],
   sticker_diecut:   ['สติ๊กเกอร์', 'ไดคัท', 'สติ๊กเกอร์ไดคัท', 'diecut'],
   sticker_clear:    ['สติ๊กเกอร์', 'ใส', 'สติ๊กเกอร์ใส', 'clear'],
@@ -387,6 +387,38 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     return bestScore > 0 ? bestMatId : undefined;
   }
 
+  // Pre-split a multi-item sentence into individual item segments before sending to AI.
+  // Splits on: (1) conjunctions "และ"/"กับ", (2) [number][unit_word] followed by a known material keyword.
+  function segmentText(text: string): string[] {
+    const conjParts = text.split(/\s*(?:และ|กับ)\s*/);
+    if (conjParts.length > 1) return conjParts.map(p => p.trim()).filter(Boolean);
+
+    const MATERIAL_STARTS = ['ไวนิล','สติ๊กเกอร์','สติกเกอร์','ฟิวเจอร์','ผ้าไอที','ผ้า','อะคริลิค','อะคริลิก','กระดาษ','โรลอัพ','ป้าย'];
+    function startsWithMaterial(s: string): boolean {
+      const w = s.trimStart().toLowerCase();
+      if (/^x\s*stand/i.test(w)) return true;
+      return MATERIAL_STARTS.some(m => w.startsWith(m.toLowerCase()));
+    }
+
+    const UNIT_RE = /\d+\s*(?:ป้าย|ผืน|ชิ้น|แผ่น|อัน|ใบ|รูป|pcs?|pieces?)/gi;
+    const boundaries: number[] = [];
+    let m: RegExpExecArray | null;
+    UNIT_RE.lastIndex = 0;
+    while ((m = UNIT_RE.exec(text)) !== null) {
+      const endPos = m.index + m[0].length;
+      const after = text.slice(endPos);
+      if (startsWithMaterial(after)) boundaries.push(endPos);
+    }
+
+    if (boundaries.length === 0) return [text];
+    const parts: string[] = [];
+    let last = 0;
+    for (const b of boundaries) { const p = text.slice(last, b).trim(); if (p) parts.push(p); last = b; }
+    const rest = text.slice(last).trim();
+    if (rest) parts.push(rest);
+    return parts.length > 1 ? parts : [text];
+  }
+
   function kwMatch(text: string): { matId?: string; parsedW: number; parsedH: number; du?: 'cm'|'m'|'in'|'ft'; parsedQ: number } {
     const UNIT_WORD = '(?:เมตร|ม\\.?|ซม\\.?|ซ\\.ม\\.?|นิ้ว|ฟุต|cm|m|in|ft)?';
     const dimMatch =
@@ -459,11 +491,14 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     setParseInfo([]);
     setParseItems([]);
 
-    // ── Try AI first ─────────────────────────────────
-    // AI returns material as free-text Thai description; local scoreMaterial() matches to matId.
+    // Step 1: Pre-split text into item segments locally
+    const segments = segmentText(text);
+
+    // Step 2: Send to AI — single text or numbered list of segments
     let aiItems: { material?: string; width?: string; height?: string; unit?: string; qty?: string }[] = [];
     try {
-      const res = await fetch('/api/parse-calc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      const body = segments.length > 1 ? { segments } : { text };
+      const res = await fetch('/api/parse-calc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) aiItems = data;

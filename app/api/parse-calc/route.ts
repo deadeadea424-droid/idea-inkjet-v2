@@ -64,18 +64,25 @@ output: [{"material":"ไวนิล","width":"60","height":"90","unit":"cm","q
 
 export async function POST(req: NextRequest) {
   try {
-    const { text } = await req.json();
-    if (!text?.trim()) return NextResponse.json([], { status: 400 });
+    const body = await req.json();
+    // Accept either { text } (single) or { segments: string[] } (pre-split by client)
+    const segments: string[] = body.segments ?? (body.text?.trim() ? [body.text.trim()] : []);
+    if (segments.length === 0) return NextResponse.json([], { status: 400 });
 
     const apiKey = await getApiKey();
     if (!apiKey) return NextResponse.json([], { status: 500 });
 
+    // When multiple segments are provided, number them so AI parses each independently
+    const userMessage = segments.length > 1
+      ? segments.map((s, i) => `รายการที่ ${i + 1}: ${s}`).join('\n')
+      : segments[0];
+
     const client = new Anthropic({ apiKey });
     const msg = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
+      max_tokens: 1024,
       system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: text }],
+      messages: [{ role: 'user', content: userMessage }],
     });
 
     const raw = (msg.content[0] as { type: string; text: string }).text.trim();
