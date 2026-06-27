@@ -1,5 +1,102 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/lib/supabase';
+
+const SESSION_KEY = 'calc_session';
+
+function CalcLogin({ onLogin }: { onLogin: (empId: number, empName: string) => void }) {
+  const [employees, setEmployees] = useState<{ id: number; name: string }[]>([]);
+  const [empId, setEmpId]     = useState<number | ''>('');
+  const [pin, setPin]         = useState('');
+  const [loading, setLoading] = useState(true);
+  const [errMsg, setErrMsg]   = useState('');
+  const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    async function loadEmps() {
+      const [empRes, settingsRes] = await Promise.all([
+        supabase.from('employees').select('id, name').order('name'),
+        supabase.from('app_settings').select('key, value').like('key', 'calc_emp_%'),
+      ]);
+      const accessSet = new Set<number>(
+        (settingsRes.data ?? [])
+          .filter(r => r.value === 'true')
+          .map(r => Number(r.key.replace('calc_emp_', '')))
+      );
+      const list = (empRes.data ?? []).filter((e: any) => accessSet.has(e.id));
+      setEmployees(list);
+      if (list.length > 0) setEmpId(list[0].id);
+      setLoading(false);
+    }
+    loadEmps();
+  }, []);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!empId) return;
+    setChecking(true); setErrMsg('');
+    const { data } = await supabase
+      .from('app_settings').select('value').eq('key', `pin_emp_${empId}`).maybeSingle();
+    setChecking(false);
+    if (!data?.value) { setErrMsg('พนักงานนี้ยังไม่ได้ตั้งรหัส กรุณาติดต่อแอดมิน'); return; }
+    if (data.value !== pin) { setErrMsg('รหัสไม่ถูกต้อง กรุณาลองใหม่'); setPin(''); return; }
+    const emp = employees.find(e => e.id === empId);
+    const session = { empId, empName: emp?.name ?? '', ts: Date.now() };
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    onLogin(empId as number, emp?.name ?? '');
+  }
+
+  if (loading) return (
+    <main style={{ display:'flex', justifyContent:'center', alignItems:'center', minHeight:'100vh', background:'#f8fafc' }}>
+      <div style={{ color:'#6b7280' }}>กำลังโหลด...</div>
+    </main>
+  );
+
+  return (
+    <main style={{ display:'flex', justifyContent:'center', alignItems:'center', minHeight:'100vh', background:'#f1f5f9', padding:'0 16px' }}>
+      <div style={{ width:'100%', maxWidth:380, background:'white', borderRadius:20, padding:'32px 28px', boxShadow:'0 8px 32px rgba(0,0,0,0.10)' }}>
+        <div style={{ textAlign:'center', marginBottom:28 }}>
+          <div style={{ fontSize:40, marginBottom:8 }}>🧮</div>
+          <div style={{ fontSize:20, fontWeight:800, color:'#1e293b' }}>คำนวณราคาป้าย</div>
+          <div style={{ fontSize:13, color:'#6b7280', marginTop:4 }}>สำหรับเจ้าหน้าที่ร้าน Idea Inkjet เท่านั้น</div>
+        </div>
+
+        {employees.length === 0 ? (
+          <div style={{ textAlign:'center', padding:'20px 0', color:'#6b7280' }}>
+            <div style={{ fontSize:32, marginBottom:12 }}>🔒</div>
+            <div style={{ fontWeight:600, fontSize:15 }}>ยังไม่มีพนักงานได้รับสิทธิ์</div>
+            <div style={{ fontSize:13, marginTop:6 }}>กรุณาให้แอดมินเปิดสิทธิ์คำนวณราคาในหน้าจัดการพนักงาน</div>
+          </div>
+        ) : (
+          <form onSubmit={submit} style={{ display:'flex', flexDirection:'column', gap:16 }}>
+            <div>
+              <label style={{ fontSize:13, color:'#374151', fontWeight:600, display:'block', marginBottom:6 }}>ชื่อพนักงาน</label>
+              <select value={empId} onChange={e => setEmpId(Number(e.target.value))} required
+                style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', fontSize:15, background:'white', boxSizing:'border-box' }}>
+                {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize:13, color:'#374151', fontWeight:600, display:'block', marginBottom:6 }}>รหัสเข้าใช้งาน</label>
+              <input type="password" required value={pin} onChange={e => setPin(e.target.value)}
+                placeholder="กรอกรหัส PIN"
+                style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', fontSize:16, letterSpacing:4, textAlign:'center', boxSizing:'border-box' }} />
+            </div>
+            {errMsg && (
+              <div style={{ background:'#fee2e2', border:'1px solid #fca5a5', borderRadius:8, padding:'8px 12px', color:'#dc2626', fontSize:13 }}>
+                {errMsg}
+              </div>
+            )}
+            <button type="submit" disabled={checking}
+              style={{ padding:'12px 0', borderRadius:12, border:'none', background: checking ? '#93c5fd' : '#1d4ed8', color:'white', fontSize:15, fontWeight:700, cursor: checking ? 'default' : 'pointer' }}>
+              {checking ? 'กำลังตรวจสอบ...' : 'เข้าใช้งาน'}
+            </button>
+          </form>
+        )}
+      </div>
+    </main>
+  );
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Material = { id: string; name: string; pricePerSqm: number; fixedPrice?: number; quoteOnly?: boolean; minTotal?: number };
@@ -54,6 +151,29 @@ function useLocalStorage<T>(key: string, init: T, version?: string): [T, (v: T) 
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function CalcPage() {
+  const [session,  setSession]  = useState<{ empId: number; empName: string } | null | 'loading'>('loading');
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(SESSION_KEY);
+      if (raw) { const s = JSON.parse(raw); setSession({ empId: s.empId, empName: s.empName }); }
+      else setSession(null);
+    } catch { setSession(null); }
+  }, []);
+
+  function logout() { sessionStorage.removeItem(SESSION_KEY); setSession(null); }
+
+  if (session === 'loading') return (
+    <main style={{ display:'flex', justifyContent:'center', alignItems:'center', minHeight:'100vh', background:'#f8fafc' }}>
+      <div style={{ color:'#6b7280' }}>กำลังโหลด...</div>
+    </main>
+  );
+  if (!session) return <CalcLogin onLogin={(id, name) => setSession({ empId: id, empName: name })} />;
+
+  return <CalcApp empName={session.empName} onLogout={logout} />;
+}
+
+function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void }) {
   const [materials, setMaterials] = useLocalStorage<Material[]>('calc_materials', DEFAULT_MATERIALS, MATERIALS_VER);
   const [matId, setMatId] = useState('vinyl440');
   const [width, setWidth] = useState('');
@@ -167,9 +287,15 @@ export default function CalcPage() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
         <a href="/" style={{ color: '#6b7280', textDecoration: 'none', fontSize: 22, lineHeight: 1 }}>←</a>
-        <div>
+        <div style={{ flex: 1 }}>
           <div style={{ fontSize: 20, fontWeight: 800, color: '#1e293b' }}>คำนวณราคาป้าย</div>
           <div style={{ fontSize: 12, color: '#6b7280' }}>Idea Inkjet · Price Calculator</div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>👤 {empName}</div>
+          <button onClick={onLogout} style={{ fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0' }}>
+            ออกจากระบบ
+          </button>
         </div>
       </div>
 

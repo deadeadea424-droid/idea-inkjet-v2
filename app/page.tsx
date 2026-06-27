@@ -220,6 +220,7 @@ export default function Home() {
   const [assessments,   setAssessments]   = useState<any[]>([]);
   const [paymentSlips,  setPaymentSlips]  = useState<any[]>([]);
   const [slipViewing,   setSlipViewing]   = useState<number | null>(null);
+  const [calcAccess,    setCalcAccess]    = useState<Record<number, boolean>>({});
 
   // ── Load ────────────────────────────────────────────────────────────────────
   async function load() {
@@ -277,13 +278,19 @@ export default function Home() {
     });
 
     const followupMap: Record<number, { status: string; note: string; promisedDate: string; updatedAt: string }> = {};
+    const calcAccessMap: Record<number, boolean> = {};
     Object.entries(settingsMap).forEach(([k, v]) => {
       if (k.startsWith('followup_')) {
         const id = Number(k.slice(9));
         try { followupMap[id] = JSON.parse(v); } catch {}
       }
+      if (k.startsWith('calc_emp_')) {
+        const id = Number(k.replace('calc_emp_', ''));
+        calcAccessMap[id] = v === 'true';
+      }
     });
     setFollowups(followupMap);
+    setCalcAccess(calcAccessMap);
 
     const custNorm: Customer[] = (c.data || []).map((x: any) => ({
       id: x.id, name: x.name ?? x.customer_name ?? '',
@@ -383,6 +390,14 @@ export default function Home() {
     if (tab === 'assessments') loadAssessments();
     if (tab === 'slips') loadPaymentSlips();
   }, [tab]);
+
+  async function toggleCalcAccess(empId: number) {
+    const current = calcAccess[empId] ?? false;
+    const next = !current;
+    await supabase.from('app_settings').upsert({ key: `calc_emp_${empId}`, value: next ? 'true' : 'false' });
+    setCalcAccess(prev => ({ ...prev, [empId]: next }));
+    show(next ? 'เปิดสิทธิ์คำนวณราคาแล้ว' : 'ปิดสิทธิ์คำนวณราคาแล้ว');
+  }
 
   async function markSlipReviewed(id: number) {
     await supabase.from('payment_slips').update({ status: 'reviewed' }).eq('id', id);
@@ -1319,6 +1334,9 @@ export default function Home() {
                         {emp.pin
                           ? <span className="countBadge" style={{ background:'#dcfce7', color:'#166534' }}>🔒 มีรหัส</span>
                           : <span className="countBadge" style={{ background:'#fee2e2', color:'#991b1b' }}>🔓 ยังไม่มีรหัส</span>}
+                        {calcAccess[emp.id]
+                          ? <span className="countBadge" style={{ background:'#dbeafe', color:'#1d4ed8' }}>🧮 คำนวณราคา ✓</span>
+                          : <span className="countBadge" style={{ background:'#f3f4f6', color:'#9ca3af' }}>🧮 ไม่มีสิทธิ์</span>}
                         <div style={{ marginTop:3 }}>
                           <span className="countBadge">{asDes + asPro + asRec + asMea + asDel} งาน</span>
                           {asRec > 0 && <span className="countBadge" style={{ background:'#dbeafe', color:'#1d4ed8' }}>รับงาน {asRec}</span>}
@@ -1331,6 +1349,11 @@ export default function Home() {
                       <div className="rowActions">
                         <button className="btnSm" style={{ background:'#0891b2' }} onClick={() => setViewAsEmp(emp.id)}>ดูหน้าจอ</button>
                         <button className="btn2 btnSm" onClick={() => openEditEmployee(emp)}>แก้ไข/รหัส</button>
+                        <button className="btnSm"
+                          style={{ background: calcAccess[emp.id] ? '#dc2626' : '#1d4ed8' }}
+                          onClick={() => toggleCalcAccess(emp.id)}>
+                          🧮 {calcAccess[emp.id] ? 'ถอนสิทธิ์' : 'ให้สิทธิ์'}
+                        </button>
                         <CopyLinkBtn path={`/emp/${emp.id}`} label="คัดลอกลิงค์" />
                         {(asDes + asPro + asRec + asMea + asDel) === 0 && <button className="btnRed btnSm" onClick={() => deleteEmployee(emp.id)}>ลบ</button>}
                       </div>
