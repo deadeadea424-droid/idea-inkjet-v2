@@ -520,6 +520,19 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     }
 
     setParseItems(results);
+
+    // Auto-add all parsed items to cart immediately
+    if (results.length > 0) {
+      const startId = cartCounter;
+      const newCartItems: CartItem[] = results.map((item, i) => ({
+        id: startId + i + 1,
+        matName: item.matName, dim: item.dim, sqm: item.sqm,
+        isFixed: item.isFixed, qty: item.qty, unitWord: item.unitWord,
+        pricePerPiece: item.pricePerPiece, total: item.total,
+      }));
+      setCartCounter(startId + results.length);
+      setCartItems(prev => [...prev, ...newCartItems]);
+    }
   }
 
   return (
@@ -638,17 +651,16 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
                 <span style={{ fontSize: 22, fontWeight: 900, color: '#f1f5f9' }}>{fmt(parseItems.reduce((s, i) => s + i.total, 0))} บาท</span>
               </div>
             )}
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#14532d', borderRadius: 8 }}>
+              <span style={{ fontSize: 14, color: '#86efac', fontWeight: 700, flex: 1 }}>
+                ✅ เพิ่ม{parseItems.length > 1 ? `ทั้ง ${parseItems.length} รายการ` : ''}ในตะกร้าแล้ว
+              </span>
+            </div>
             <button onClick={copyParsedItems} style={{
-              marginTop: 10, width: '100%', padding: '10px', borderRadius: 8, border: 'none',
+              marginTop: 6, width: '100%', padding: '10px', borderRadius: 8, border: 'none',
               cursor: 'pointer', background: parseAllCopied ? '#16a34a' : '#3b82f6', color: 'white', fontWeight: 700, fontSize: 14,
             }}>
               {parseAllCopied ? '✅ คัดลอกแล้ว!' : '📋 คัดลอกผลลัพธ์'}
-            </button>
-            <button onClick={addAllParsedToCart} style={{
-              marginTop: 6, width: '100%', padding: '10px', borderRadius: 8, border: 'none',
-              cursor: 'pointer', background: '#15803d', color: 'white', fontWeight: 700, fontSize: 14,
-            }}>
-              ➕ เพิ่ม{parseItems.length > 1 ? `ทั้ง ${parseItems.length} รายการ` : ''}ในรายการ
             </button>
           </div>
         )}
