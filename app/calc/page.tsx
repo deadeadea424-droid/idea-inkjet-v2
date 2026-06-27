@@ -256,6 +256,11 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
   const [pinInput, setPinInput] = useState('');
   const [pinErr, setPinErr] = useState('');
 
+  type CartItem = { id: number; matName: string; dim?: string; sqm?: number; isFixed: boolean; qty: number; unitWord: string; pricePerPiece: number; total: number };
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartCounter, setCartCounter] = useState(0);
+  const [cartCopied, setCartCopied] = useState(false);
+
   useEffect(() => {
     supabase.from('app_settings').select('value').eq('key', 'owner_pin').single()
       .then(({ data }) => setOwnerPin(data?.value ?? ''));
@@ -307,6 +312,47 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
   }
 
   function resetMaterials() { setMaterials(DEFAULT_MATERIALS); }
+
+  const cartGrandTotal = cartItems.reduce((s, i) => s + i.total, 0);
+
+  function addToCartFromParse() {
+    if (!parseResult) return;
+    const id = cartCounter + 1;
+    setCartCounter(id);
+    setCartItems(prev => [...prev, {
+      id, matName: parseResult.matName, dim: parseResult.dim, sqm: parseResult.sqm,
+      isFixed: parseResult.isFixed, qty: parseResult.qty, unitWord: parseResult.unitWord,
+      pricePerPiece: parseResult.pricePerPiece, total: parseResult.total,
+    }]);
+  }
+
+  function addToCartFromManual() {
+    if (sqm <= 0 && !isFixed) return;
+    const id = cartCounter + 1;
+    setCartCounter(id);
+    const unitWord = mat.id.startsWith('paper_') ? 'แผ่น' : 'ชิ้น';
+    setCartItems(prev => [...prev, {
+      id, matName: mat.name,
+      dim: !isFixed && wNum > 0 && hNum > 0 ? `${wNum}×${hNum} ${unit}` : undefined,
+      sqm: isFixed ? undefined : sqm, isFixed,
+      qty: qNum, unitWord, pricePerPiece, total,
+    }]);
+  }
+
+  function removeFromCart(id: number) { setCartItems(prev => prev.filter(i => i.id !== id)); }
+
+  function copyCart() {
+    const lines: string[] = [];
+    cartItems.forEach((item, idx) => {
+      lines.push(`รายการที่ ${idx + 1}: ${item.matName}`);
+      if (item.dim) lines.push(`  ขนาด: ${item.dim}${!item.isFixed && item.sqm ? ` (${item.sqm.toFixed(2)} ตร.ม.)` : ''}`);
+      lines.push(`  จำนวน: ${item.qty} ${item.unitWord}`);
+      lines.push(`  ราคา/${item.unitWord}: ${fmt(item.pricePerPiece)} บาท`);
+      lines.push(`  รวม: ${fmt(item.total)} บาท`);
+    });
+    lines.push('', `รวมทั้งหมด: ${fmt(cartGrandTotal)} บาท`, 'ขอบคุณที่ใช้บริการครับ');
+    navigator.clipboard?.writeText(lines.join('\n')).then(() => { setCartCopied(true); setTimeout(() => setCartCopied(false), 2500); });
+  }
 
   function parseAndApply() {
     if (!parseText.trim()) return;
@@ -519,6 +565,12 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
             }}>
               {parseCopied ? '✅ คัดลอกแล้ว!' : '📋 คัดลอกผลลัพธ์'}
             </button>
+            <button onClick={addToCartFromParse} style={{
+              marginTop: 6, width: '100%', padding: '10px', borderRadius: 8, border: 'none',
+              cursor: 'pointer', background: '#15803d', color: 'white', fontWeight: 700, fontSize: 14,
+            }}>
+              ➕ เพิ่มในรายการ
+            </button>
           </div>
         )}
       </div>
@@ -689,6 +741,61 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
             background: copied ? '#16a34a' : '#3b82f6', color: 'white', fontWeight: 700, fontSize: 15,
           }}>
             {copied ? '✅ คัดลอกแล้ว!' : '📋 คัดลอกผลลัพธ์'}
+          </button>
+          <button onClick={addToCartFromManual} style={{
+            marginTop: 8, width: '100%', padding: '12px', borderRadius: 10, border: 'none', cursor: 'pointer',
+            background: '#15803d', color: 'white', fontWeight: 700, fontSize: 15,
+          }}>
+            ➕ เพิ่มในรายการ
+          </button>
+        </div>
+      )}
+
+      {/* ── รายการคำนวณ ──────────────────────────── */}
+      {cartItems.length > 0 && (
+        <div style={{ ...card, background: '#f0fdf4', borderColor: '#86efac', borderWidth: 2 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: '#15803d' }}>🛒 รายการทั้งหมด ({cartItems.length} รายการ)</div>
+            <button onClick={() => setCartItems([])} style={{ fontSize: 12, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+              ลบทั้งหมด
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {cartItems.map((item, idx) => (
+              <div key={item.id} style={{ background: 'white', borderRadius: 10, padding: '10px 12px', border: '1px solid #bbf7d0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>{idx + 1}. {item.matName}</div>
+                    {item.dim && (
+                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                        {item.dim}{!item.isFixed && item.sqm ? ` · ${item.sqm.toFixed(2)} ตร.ม.` : ''}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 12, color: '#6b7280' }}>
+                      {item.qty} {item.unitWord} · {fmt(item.pricePerPiece)} บ./{item.unitWord}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: '#15803d' }}>{fmt(item.total)} บ.</div>
+                    <button onClick={() => removeFromCart(item.id)} style={{
+                      background: '#fee2e2', border: 'none', borderRadius: 6,
+                      width: 26, height: 26, cursor: 'pointer', color: '#dc2626', fontWeight: 800, fontSize: 16,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    }}>×</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ borderTop: '1px solid #86efac', marginTop: 12, paddingTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={{ fontWeight: 700, fontSize: 14, color: '#15803d' }}>รวมทั้งหมด</span>
+            <span style={{ fontWeight: 900, fontSize: 22, color: '#15803d' }}>{fmt(cartGrandTotal)} บาท</span>
+          </div>
+          <button onClick={copyCart} style={{
+            marginTop: 10, width: '100%', padding: '12px', borderRadius: 10, border: 'none',
+            cursor: 'pointer', background: cartCopied ? '#16a34a' : '#15803d', color: 'white', fontWeight: 700, fontSize: 14,
+          }}>
+            {cartCopied ? '✅ คัดลอกแล้ว!' : '📋 คัดลอกทั้งรายการ'}
           </button>
         </div>
       )}
