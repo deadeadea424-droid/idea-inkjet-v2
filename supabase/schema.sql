@@ -119,5 +119,19 @@ CREATE POLICY "Allow all" ON order_status_logs FOR ALL USING (true) WITH CHECK (
 CREATE POLICY "Allow all" ON payments FOR ALL USING (true) WITH CHECK (true);
 ALTER TABLE payment_slips ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all" ON payment_slips FOR ALL USING (true) WITH CHECK (true);
+
+CREATE TABLE employee_ratings (
+  id            BIGSERIAL PRIMARY KEY,
+  assessment_id BIGINT REFERENCES assessments(id) ON DELETE CASCADE,
+  order_id      BIGINT REFERENCES orders(id) ON DELETE CASCADE,
+  employee_id   BIGINT REFERENCES employees(id),
+  employee_role TEXT,
+  rating        SMALLINT CHECK (rating BETWEEN 1 AND 5),
+  comment       TEXT,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE employee_ratings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all" ON employee_ratings FOR ALL USING (true) WITH CHECK (true);
 ALTER TABLE assessments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all" ON assessments FOR ALL USING (true) WITH CHECK (true);

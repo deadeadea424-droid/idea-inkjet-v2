@@ -366,7 +366,7 @@ export default function Home() {
   async function loadAssessments() {
     const { data } = await supabase
       .from('assessments')
-      .select('*, orders(id, order_code, title, customers(name))')
+      .select('*, orders(id, order_code, title, customers(name)), employee_ratings(id, employee_id, employee_role, rating, comment, employees(name))')
       .order('created_at', { ascending: false });
     setAssessments(data || []);
   }
@@ -1409,113 +1409,164 @@ export default function Home() {
 
       {/* ═══ ASSESSMENTS ═════════════════════════════════════════════════════ */}
       {tab === 'assessments' && (() => {
-        const avgOverall = assessments.length > 0
-          ? (assessments.reduce((s, a) => s + (a.overall_rating || 0), 0) / assessments.length).toFixed(1)
-          : null;
-        const starLabel = (n: number) => ['','ต้องปรับปรุง','พอใช้','ดี','ดีมาก','ยอดเยี่ยม'][n] || '';
-        const starBar = (n: number) => '★'.repeat(n) + '☆'.repeat(5 - n);
-        const criteriaLabels: Record<string, string> = {
-          quality_rating: 'คุณภาพงาน',
-          service_rating: 'การบริการ',
-          timeliness_rating: 'ความตรงเวลา',
-          communication_rating: 'การสื่อสาร',
-        };
+        const starLabel = (n: number) => ['','ต้องปรับปรุง','พอใช้','ดี','ดีมาก','ยอดเยี่ยม'][n] ?? '';
+        const starBar   = (n: number) => '★'.repeat(Math.round(n)) + '☆'.repeat(5 - Math.round(n));
+        const scoreColor = (n: number) => n >= 4 ? '#16a34a' : n >= 3 ? '#d97706' : '#dc2626';
 
-        const avgByCriteria = Object.keys(criteriaLabels).map(key => {
-          const vals = assessments.map(a => a[key] || 0).filter(v => v > 0);
-          return { key, label: criteriaLabels[key], avg: vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0 };
+        // Aggregate per-employee stats across all assessments
+        const empMap: Record<number, { name: string; role: string; ratings: number[]; comments: string[] }> = {};
+        assessments.forEach((a: any) => {
+          (a.employee_ratings ?? []).forEach((r: any) => {
+            const id = r.employee_id;
+            if (!empMap[id]) empMap[id] = { name: r.employees?.name ?? `พนักงาน #${id}`, role: r.employee_role ?? '', ratings: [], comments: [] };
+            if (r.rating) empMap[id].ratings.push(r.rating);
+            if (r.comment) empMap[id].comments.push(r.comment);
+          });
         });
+
+        const empStats = Object.entries(empMap).map(([id, v]) => ({
+          id: Number(id),
+          name: v.name,
+          role: v.role,
+          count: v.ratings.length,
+          avg: v.ratings.length ? v.ratings.reduce((s, n) => s + n, 0) / v.ratings.length : 0,
+          comments: v.comments,
+        })).sort((a, b) => b.avg - a.avg);
+
+        const avgOverall = assessments.length > 0
+          ? assessments.reduce((s: number, a: any) => s + (a.overall_rating || 0), 0) / assessments.length
+          : 0;
+
+        const [asmtView, setAsmtView] = useState<'leaderboard'|'feedback'>('leaderboard');
 
         return (
           <section>
+            {/* KPI strip */}
             <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:16 }}>
               <div className="card" style={{ textAlign:'center', padding:'14px 10px' }}>
-                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>การประเมินทั้งหมด</div>
+                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>ประเมินทั้งหมด</div>
                 <div style={{ fontSize:24, fontWeight:800, color:'#1d4ed8' }}>{assessments.length}</div>
               </div>
               <div className="card" style={{ textAlign:'center', padding:'14px 10px' }}>
-                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>คะแนนเฉลี่ยโดยรวม</div>
-                <div style={{ fontSize:24, fontWeight:800, color: avgOverall && Number(avgOverall) >= 4 ? '#16a34a' : avgOverall && Number(avgOverall) >= 3 ? '#d97706' : '#dc2626' }}>
-                  {avgOverall ?? '-'}<span style={{ fontSize:14, fontWeight:400 }}>/5</span>
+                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>คะแนนเฉลี่ยรวม</div>
+                <div style={{ fontSize:24, fontWeight:800, color: scoreColor(avgOverall) }}>
+                  {avgOverall > 0 ? avgOverall.toFixed(1) : '-'}<span style={{ fontSize:13, fontWeight:400 }}>/5</span>
                 </div>
               </div>
               <div className="card" style={{ textAlign:'center', padding:'14px 10px' }}>
-                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>คะแนน 5 ดาว</div>
-                <div style={{ fontSize:24, fontWeight:800, color:'#f59e0b' }}>
-                  {assessments.filter(a => a.overall_rating === 5).length}
-                </div>
+                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>พนักงานที่ถูกประเมิน</div>
+                <div style={{ fontSize:24, fontWeight:800, color:'#7c3aed' }}>{empStats.length} คน</div>
               </div>
             </div>
 
-            {assessments.length > 0 && (
-              <div className="card" style={{ marginBottom:16 }}>
-                <h3 className="chartTitle">คะแนนเฉลี่ยแต่ละด้าน</h3>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:12, marginTop:10 }}>
-                  {avgByCriteria.map(({ key, label, avg }) => (
-                    <div key={key} style={{ background:'#f8fafc', borderRadius:10, padding:'12px 14px' }}>
-                      <div style={{ fontSize:12, color:'var(--muted)', marginBottom:4 }}>{label}</div>
-                      <div style={{ fontSize:20, fontWeight:800, color: avg >= 4 ? '#16a34a' : avg >= 3 ? '#d97706' : '#dc2626' }}>
-                        {avg > 0 ? avg.toFixed(1) : '-'}<span style={{ fontSize:12, fontWeight:400, color:'var(--muted)' }}>/5</span>
-                      </div>
-                      {avg > 0 && (
-                        <div style={{ fontSize:14, color:'#f59e0b', letterSpacing:1, marginTop:2 }}>
-                          {'★'.repeat(Math.round(avg))}{'☆'.repeat(5 - Math.round(avg))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* Toggle */}
+            <div className="tabs" style={{ marginBottom:14 }}>
+              <button className={`tab${asmtView==='leaderboard'?' active':''}`} onClick={() => setAsmtView('leaderboard')}>
+                🏆 คะแนนรายคน
+              </button>
+              <button className={`tab${asmtView==='feedback'?' active':''}`} onClick={() => setAsmtView('feedback')}>
+                💬 Feedback ทั้งหมด
+              </button>
+            </div>
 
-            {assessments.length === 0 ? (
+            {assessments.length === 0 && (
               <div className="card" style={{ textAlign:'center', padding:48, color:'var(--muted)' }}>
                 <div style={{ fontSize:40, marginBottom:12 }}>⭐</div>
                 <div style={{ fontWeight:600 }}>ยังไม่มีการประเมิน</div>
-                <div style={{ fontSize:13, marginTop:4 }}>ลูกค้าจะเห็นปุ่มประเมินในหน้าติดตามงาน</div>
+                <div style={{ fontSize:13, marginTop:4 }}>ลูกค้าจะเห็นปุ่มประเมินเมื่อสถานะงานเป็น "ลูกค้ารับแล้ว" หรือ "ชำระเงินแล้ว"</div>
               </div>
-            ) : (
+            )}
+
+            {/* Leaderboard view */}
+            {asmtView === 'leaderboard' && empStats.length > 0 && (
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                {empStats.map((emp, i) => (
+                  <div key={emp.id} className="card" style={{ borderLeft:`4px solid ${i===0?'#f59e0b':i===1?'#9ca3af':i===2?'#b45309':'#e5e7eb'}` }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                        <div style={{ width:40, height:40, borderRadius:'50%', background:'#dbeafe', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, color:'#1d4ed8', fontSize:16, flexShrink:0 }}>
+                          {emp.name.charAt(0)}
+                        </div>
+                        <div>
+                          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                            {i < 3 && <span style={{ fontSize:16 }}>{['🥇','🥈','🥉'][i]}</span>}
+                            <span style={{ fontWeight:700, fontSize:15 }}>{emp.name}</span>
+                          </div>
+                          <div style={{ fontSize:12, color:'var(--muted)' }}>ถูกประเมิน {emp.count} ครั้ง</div>
+                        </div>
+                      </div>
+                      <div style={{ textAlign:'right' }}>
+                        <div style={{ fontSize:28, fontWeight:800, color: scoreColor(emp.avg) }}>{emp.avg.toFixed(1)}</div>
+                        <div style={{ fontSize:15, color:'#f59e0b', letterSpacing:2 }}>{starBar(emp.avg)}</div>
+                        <div style={{ fontSize:11, fontWeight:600, color: scoreColor(emp.avg) }}>{starLabel(Math.round(emp.avg))}</div>
+                      </div>
+                    </div>
+
+                    {/* Score bar */}
+                    <div style={{ marginTop:10, background:'#f3f4f6', borderRadius:100, height:8, overflow:'hidden' }}>
+                      <div style={{ height:'100%', borderRadius:100, background: scoreColor(emp.avg), width:`${(emp.avg/5)*100}%`, transition:'width 0.4s' }} />
+                    </div>
+
+                    {emp.comments.length > 0 && (
+                      <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:6 }}>
+                        {emp.comments.slice(0, 2).map((c, ci) => (
+                          <div key={ci} style={{ background:'#fffbeb', border:'1px solid #fde68a', borderRadius:8, padding:'6px 10px', fontSize:13, color:'#374151' }}>
+                            "{c}"
+                          </div>
+                        ))}
+                        {emp.comments.length > 2 && (
+                          <div style={{ fontSize:12, color:'var(--muted)' }}>และอีก {emp.comments.length - 2} ความคิดเห็น...</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Feedback view — per-assessment */}
+            {asmtView === 'feedback' && assessments.length > 0 && (
               <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
                 {assessments.map((a: any) => (
                   <div key={a.id} className="card">
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:8, marginBottom:10 }}>
                       <div>
-                        {a.orders?.order_code && (
-                          <div style={{ fontSize:12, color:'var(--muted)', marginBottom:2 }}>{a.orders.order_code}</div>
-                        )}
+                        {a.orders?.order_code && <div style={{ fontSize:12, color:'var(--muted)' }}>{a.orders.order_code}</div>}
                         <div style={{ fontWeight:700, fontSize:15 }}>{a.orders?.title ?? `งาน #${a.order_id}`}</div>
-                        {a.orders?.customers?.name && (
-                          <div style={{ fontSize:13, color:'var(--muted)' }}>ลูกค้า: {a.orders.customers.name}</div>
-                        )}
+                        {a.orders?.customers?.name && <div style={{ fontSize:13, color:'var(--muted)' }}>ลูกค้า: {a.orders.customers.name}</div>}
                       </div>
                       <div style={{ textAlign:'right' }}>
-                        <div style={{ fontSize:22, color:'#f59e0b' }}>{starBar(a.overall_rating || 0)}</div>
-                        <div style={{ fontSize:12, fontWeight:700, color: (a.overall_rating||0) >= 4 ? '#16a34a' : '#d97706' }}>
-                          {starLabel(a.overall_rating || 0)}
-                        </div>
+                        <div style={{ fontSize:20, color:'#f59e0b' }}>{starBar(a.overall_rating || 0)}</div>
+                        <div style={{ fontSize:12, fontWeight:700, color: scoreColor(a.overall_rating||0) }}>{starLabel(a.overall_rating||0)}</div>
                       </div>
                     </div>
 
-                    <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:6, marginBottom: a.comment ? 10 : 0 }}>
-                      {Object.entries(criteriaLabels).map(([key, label]) => (
-                        <div key={key} style={{ background:'#f8fafc', borderRadius:8, padding:'8px 10px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                          <span style={{ fontSize:12, color:'var(--muted)' }}>{label}</span>
-                          <span style={{ fontSize:13, fontWeight:700, color:'#1e293b' }}>
-                            {a[key] ?? '-'}<span style={{ color:'var(--muted)', fontWeight:400 }}>/5</span>
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-
-                    {a.comment && (
-                      <div style={{ background:'#fffbeb', border:'1px solid #fde68a', borderRadius:8, padding:'10px 12px', fontSize:13, color:'#374151', marginTop: 6 }}>
-                        <span style={{ fontSize:11, color:'#92400e', fontWeight:600 }}>ความคิดเห็น: </span>
-                        {a.comment}
+                    {/* Per-employee ratings in this assessment */}
+                    {(a.employee_ratings ?? []).length > 0 && (
+                      <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:8 }}>
+                        {(a.employee_ratings ?? []).map((r: any) => (
+                          <div key={r.id} style={{ background:'#f8fafc', borderRadius:8, padding:'8px 12px', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
+                            <div>
+                              <span style={{ fontWeight:600, fontSize:13 }}>{r.employees?.name ?? `#${r.employee_id}`}</span>
+                              <span style={{ fontSize:11, color:'var(--muted)', marginLeft:6 }}>({r.employee_role})</span>
+                              {r.comment && <div style={{ fontSize:12, color:'#374151', marginTop:2 }}>"{r.comment}"</div>}
+                            </div>
+                            <div style={{ textAlign:'right', flexShrink:0 }}>
+                              <div style={{ fontWeight:800, fontSize:15, color: scoreColor(r.rating||0) }}>{r.rating ?? '-'}/5</div>
+                              <div style={{ fontSize:12, color:'#f59e0b' }}>{starBar(r.rating||0)}</div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
 
-                    <div style={{ marginTop:8, fontSize:11, color:'var(--muted)' }}>
-                      ประเมินเมื่อ: {new Date(a.created_at).toLocaleString('th-TH', { timeZone:'Asia/Bangkok', year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}
+                    {a.comment && (
+                      <div style={{ background:'#fffbeb', border:'1px solid #fde68a', borderRadius:8, padding:'8px 12px', fontSize:13, color:'#374151' }}>
+                        <span style={{ fontSize:11, color:'#92400e', fontWeight:600 }}>ข้อเสนอแนะ: </span>{a.comment}
+                      </div>
+                    )}
+                    <div style={{ marginTop:6, fontSize:11, color:'var(--muted)' }}>
+                      {new Date(a.created_at).toLocaleString('th-TH', { timeZone:'Asia/Bangkok', dateStyle:'medium', timeStyle:'short' })}
                     </div>
                   </div>
                 ))}

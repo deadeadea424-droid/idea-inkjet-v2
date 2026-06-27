@@ -219,7 +219,7 @@ export default function CustomerPage() {
   );
 
   const DONE     = ['ชำระเงินแล้ว', 'ยกเลิก'];
-  const ASSESSED = ['ลูกค้ารับแล้ว', 'ชำระเงินแล้ว', 'ค้างชำระ'];
+  const ASSESSED = ['ลูกค้ารับแล้ว', 'ชำระเงินแล้ว'];
   const active   = orders.filter(o => !DONE.includes(o.status));
   const done     = orders.filter(o =>  DONE.includes(o.status));
   const today  = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
@@ -345,10 +345,14 @@ export default function CustomerPage() {
                     </div>
                   )}
                   {ASSESSED.includes(o.status) && (
-                    <div style={{ marginTop: 12, borderTop: '1px solid #f3f4f6', paddingTop: 10 }}>
+                    <div style={{ marginTop: 12, borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
+                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 8 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 2 }}>🙏 ขอบคุณที่ใช้บริการ!</div>
+                        <div style={{ fontSize: 12, color: '#78350f' }}>กรุณาประเมินความพึงพอใจและให้คะแนนทีมงาน เพื่อช่วยให้เราพัฒนาบริการให้ดียิ่งขึ้น</div>
+                      </div>
                       <a href={`/assess/${o.id}`}
-                        style={{ display: 'inline-block', padding: '8px 18px', borderRadius: 8, background: '#dbeafe', color: '#1d4ed8', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
-                        ⭐ ประเมินความพึงพอใจ
+                        style={{ display: 'block', textAlign: 'center', padding: '11px 0', borderRadius: 10, background: '#f59e0b', color: 'white', fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>
+                        ⭐ ประเมินความพึงพอใจ / ให้คะแนนพนักงาน
                       </a>
                     </div>
                   )}
