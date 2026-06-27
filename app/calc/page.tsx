@@ -272,6 +272,11 @@ export default function CalcPage() {
               <b style={{ color: '#bfdbfe' }}>4. จำนวนน้อย?</b> สั่งน้อยชิ้น ต้นทุนต่อชิ้นสูง — ควรปรับราคาให้สมเหตุสมผล<br/>
               <b style={{ color: '#fbbf24' }}>⚠️ เอะใจก่อนแจ้ง:</b> ราคาที่คำนวณได้สมควรกับงานที่ทำหรือไม่? ถ้าไม่ — ปรับเพิ่ม
             </div>
+            <div style={{ borderTop: '1px solid #1e3a8a', padding: '10px 12px', fontSize: 12, color: '#fde68a', lineHeight: 1.8, background: '#1c2f4f' }}>
+              <b style={{ color: '#fbbf24' }}>💡 ถ้าราคาดูสูง — ยังแจ้งได้เลย</b><br/>
+              บอกลูกค้าว่า <span style={{ color: 'white', fontStyle: 'italic' }}>"นี่คือราคาประเมินเบื้องต้น ราคาที่แท้จริงต้องนำไปหารือกับผู้มีอำนาจตัดสินใจก่อน แล้วจะแจ้งราคาสรุปให้อีกครั้ง"</span><br/>
+              อย่าตัดสินใจลดราคาเองโดยไม่ได้รับอนุมัติ
+            </div>
           </div>
 
           <button onClick={copyResult} style={{
