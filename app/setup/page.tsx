@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 
 type TestResult = { name: string; select: 'ok'|'err'|''; insert: 'ok'|'err'|''; msg: string };
@@ -16,6 +16,12 @@ ALTER TABLE order_status_logs DROP CONSTRAINT IF EXISTS order_status_logs_change
 ALTER TABLE order_status_logs ALTER COLUMN changed_by TYPE TEXT USING changed_by::text;`;
 
 export default function SetupPage() {
+  const [ownerPin,   setOwnerPin]   = useState('');
+  const [gatePin,    setGatePin]    = useState('');
+  const [gateErr,    setGateErr]    = useState('');
+  const [unlocked,   setUnlocked]   = useState(false);
+  const [gateLoading, setGateLoading] = useState(true);
+
   const [tests,        setTests]        = useState<TestResult[]>([]);
   const [testing,      setTesting]      = useState(false);
   const [pinNew,       setPinNew]       = useState('');
@@ -24,11 +30,26 @@ export default function SetupPage() {
   const [copiedSchema, setCopiedSchema] = useState(false);
   const [showGuide,    setShowGuide]    = useState(false);
 
+  useEffect(() => {
+    async function loadPin() {
+      const { data } = await supabase.from('app_settings').select('value').eq('key', 'owner_pin').maybeSingle();
+      const pin = data?.value ?? '';
+      setOwnerPin(pin);
+      if (!pin) setUnlocked(true); // no PIN yet → allow first-time setup
+      setGateLoading(false);
+    }
+    loadPin();
+  }, []);
+
+  function handleGate() {
+    if (gatePin === ownerPin) { setUnlocked(true); setGatePin(''); }
+    else { setGateErr('รหัสไม่ถูกต้อง'); setGatePin(''); }
+  }
+
   async function runAllTests() {
     setTesting(true);
     const out: TestResult[] = [];
 
-    // Test app_settings
     {
       const s = await supabase.from('app_settings').select('key').limit(1);
       const i = await supabase.from('app_settings').upsert({ key: '__test__', value: 'test' });
@@ -42,7 +63,6 @@ export default function SetupPage() {
       });
     }
 
-    // Test order_status_logs
     {
       const s = await supabase.from('order_status_logs').select('id').limit(1);
       const i = await supabase.from('order_status_logs').insert({ order_id: 0, new_status: '__test__', note: 'test', changed_by: 'setup_test' });
@@ -63,7 +83,6 @@ export default function SetupPage() {
       });
     }
 
-    // Test customers
     {
       const s = await supabase.from('customers').select('id').limit(1);
       out.push({ name: 'customers', select: s.error ? 'err' : 'ok', insert: '', msg: s.error?.message || '' });
@@ -82,25 +101,57 @@ export default function SetupPage() {
       const { error: e2 } = await supabase.from('app_settings').insert({ key: 'owner_pin', value: pinNew });
       if (e2) { setPinStatus('❌ ผิดพลาด: ' + e2.message + '\n\nต้องปิด RLS ของ app_settings ก่อนครับ'); return; }
     }
+    setOwnerPin(pinNew);
     setPinStatus('✅ ตั้งรหัสผ่าน "' + pinNew + '" แล้ว — กลับหน้าหลักได้เลย');
   }
 
   function copySql() {
-    navigator.clipboard?.writeText(RLS_SQL).then(() => {
-      setCopied(true); setTimeout(() => setCopied(false), 3000);
-    });
+    navigator.clipboard?.writeText(RLS_SQL).then(() => { setCopied(true); setTimeout(() => setCopied(false), 3000); });
   }
 
   function copySchema() {
-    navigator.clipboard?.writeText(SCHEMA_FIX_SQL).then(() => {
-      setCopiedSchema(true); setTimeout(() => setCopiedSchema(false), 3000);
-    });
+    navigator.clipboard?.writeText(SCHEMA_FIX_SQL).then(() => { setCopiedSchema(true); setTimeout(() => setCopiedSchema(false), 3000); });
   }
 
   const hasSchemaError = tests.some(t => t.msg.includes('Schema ผิด') || t.msg.includes('bigint'));
+  const hasRlsError    = tests.some(t => t.insert === 'err');
 
-  const hasRlsError = tests.some(t => t.insert === 'err');
+  // ── Loading ──
+  if (gateLoading) return (
+    <main style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#f8fafc' }}>
+      <div style={{ color:'#6b7280', fontSize:14 }}>กำลังโหลด...</div>
+    </main>
+  );
 
+  // ── PIN Gate ──
+  if (!unlocked) return (
+    <main style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#f8fafc', padding:'20px 16px' }}>
+      <div style={{ width:'100%', maxWidth:360, background:'white', borderRadius:20, padding:'32px 28px', boxShadow:'0 8px 32px rgba(0,0,0,0.10)' }}>
+        <div style={{ textAlign:'center', marginBottom:24 }}>
+          <div style={{ fontSize:40, marginBottom:8 }}>🔧</div>
+          <div style={{ fontSize:20, fontWeight:800, color:'#1e293b' }}>ตั้งค่าระบบ</div>
+          <div style={{ fontSize:13, color:'#6b7280', marginTop:4 }}>สำหรับเจ้าของร้านเท่านั้น</div>
+        </div>
+        <label style={{ fontSize:13, color:'#374151', fontWeight:600, display:'block', marginBottom:6 }}>รหัสเจ้าของร้าน</label>
+        <input
+          type="password"
+          placeholder="กรอกรหัส PIN"
+          value={gatePin}
+          autoFocus
+          onChange={e => { setGatePin(e.target.value); setGateErr(''); }}
+          onKeyDown={e => e.key === 'Enter' && handleGate()}
+          style={{ width:'100%', padding:'10px 14px', borderRadius:10, border:'1px solid #d1d5db', fontSize:16, letterSpacing:4, textAlign:'center', marginBottom:12, boxSizing:'border-box' }}
+        />
+        {gateErr && <div style={{ background:'#fee2e2', border:'1px solid #fca5a5', borderRadius:8, padding:'8px 12px', color:'#dc2626', fontSize:13, marginBottom:10 }}>{gateErr}</div>}
+        <button onClick={handleGate} style={{ width:'100%', padding:'12px', borderRadius:12, border:'none', background:'#1d4ed8', color:'white', fontSize:15, fontWeight:700, cursor:'pointer', marginBottom:12 }}>
+          เข้าใช้งาน
+        </button>
+        <a href="/" style={{ display:'block', textAlign:'center', fontSize:13, color:'#6b7280', textDecoration:'none' }}>← กลับหน้าหลัก</a>
+      </div>
+    </main>
+  );
+
+  // ── Setup Content ──
   return (
     <main style={{ maxWidth: 520, margin: '0 auto', padding: '20px 14px 60px', background: '#f8fafc', minHeight: '100vh' }}>
 
@@ -137,7 +188,6 @@ export default function SetupPage() {
                 {t.msg && <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4 }}>{t.msg}</div>}
               </div>
             ))}
-
             {!hasRlsError && (
               <div style={{ padding: '12px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, fontSize: 13, color: '#15803d', fontWeight: 600 }}>
                 ✅ ฐานข้อมูลพร้อมใช้งานทั้งหมด!
@@ -152,12 +202,9 @@ export default function SetupPage() {
         <div style={{ ...card, borderColor: '#fecaca', borderWidth: 2 }}>
           <div style={step}>ขั้นตอนที่ 2</div>
           <div style={cardTitle}>🔓 ปิด RLS ใน Supabase</div>
-
           <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', marginBottom: 12 }}>
             ⚠️ RLS บล็อกการบันทึกข้อมูล — ต้องปิดก่อนครับ
           </div>
-
-          {/* วิธีที่ 1: ผ่าน UI */}
           <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
             <div style={{ fontWeight: 700, fontSize: 13, color: '#1d4ed8', marginBottom: 10 }}>
               วิธีที่ 1 — ผ่านหน้าเว็บ Supabase (ง่ายกว่า)
@@ -179,8 +226,6 @@ export default function SetupPage() {
               </div>
             ))}
           </div>
-
-          {/* วิธีที่ 2: SQL */}
           <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '12px 14px' }}>
             <div style={{ fontWeight: 700, fontSize: 13, color: '#15803d', marginBottom: 8 }}>
               วิธีที่ 2 — ผ่าน SQL Editor
@@ -245,11 +290,17 @@ export default function SetupPage() {
         )}
       </div>
 
-      <a href="/" style={{
-        display: 'block', textAlign: 'center', padding: '14px',
-        background: '#1e293b', color: 'white', borderRadius: 12,
-        fontWeight: 700, textDecoration: 'none', fontSize: 15,
-      }}>← กลับหน้าหลัก</a>
+      <div style={{ display:'flex', gap:10 }}>
+        <a href="/" style={{
+          flex:1, display: 'block', textAlign: 'center', padding: '14px',
+          background: '#1e293b', color: 'white', borderRadius: 12,
+          fontWeight: 700, textDecoration: 'none', fontSize: 15,
+        }}>← กลับหน้าหลัก</a>
+        <button onClick={() => setUnlocked(false)} style={{
+          padding:'14px 18px', background:'#f1f5f9', border:'1px solid #e2e8f0',
+          borderRadius:12, fontWeight:700, fontSize:14, cursor:'pointer', color:'#374151',
+        }}>🔒 ล็อค</button>
+      </div>
     </main>
   );
 }
