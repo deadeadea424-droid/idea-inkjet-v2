@@ -6,9 +6,9 @@ type Material = { id: string; name: string; pricePerSqm: number };
 type Finishing = { id: string; name: string; unit: 'sqm' | 'perimeter' | 'piece' | 'fixed'; price: number; enabled: boolean; qty?: number };
 
 const DEFAULT_MATERIALS: Material[] = [
-  { id: 'vinyl_white', name: 'ไวนิลหลังขาว', pricePerSqm: 100 },
-  { id: 'vinyl_black', name: 'ไวนิลหลังดำ', pricePerSqm: 120 },
-  { id: 'fabric_it', name: 'ผ้าไอที', pricePerSqm: 200 },
+  { id: 'vinyl_white', name: 'ไวนิลหลังขาว 360g', pricePerSqm: 150 },
+  { id: 'vinyl_black', name: 'ไวนิลหลังดำ 360g', pricePerSqm: 150 },
+  { id: 'fabric_it', name: 'ผ้าไอที', pricePerSqm: 500 },
   { id: 'acrylic3', name: 'อะคริลิค 3 มม.', pricePerSqm: 400 },
   { id: 'future3', name: 'ฟิวเจอร์บอร์ด 3 มม.', pricePerSqm: 180 },
   { id: 'future5', name: 'ฟิวเจอร์บอร์ด 5 มม.', pricePerSqm: 220 },
@@ -29,7 +29,7 @@ const DEFAULT_FINISHING: Finishing[] = [
 
 const fmt = (n: number) => Math.round(n).toLocaleString('th-TH');
 
-const MATERIALS_VER = 'v2';
+const MATERIALS_VER = 'v3';
 
 function useLocalStorage<T>(key: string, init: T, version?: string): [T, (v: T) => void] {
   const [val, setVal] = useState<T>(init);
