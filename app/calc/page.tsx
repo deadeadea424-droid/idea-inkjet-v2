@@ -63,6 +63,8 @@ export default function CalcPage() {
   const [showEditMat, setShowEditMat] = useState(false);
   const [fixedPrices, setFixedPrices] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
+  const [parseText, setParseText] = useState('');
+  const [parseInfo, setParseInfo] = useState<string[]>([]);
 
   const mat = materials.find(m => m.id === matId) ?? materials[0];
   const wNum = parseFloat(width) || 0;
@@ -111,6 +113,54 @@ export default function CalcPage() {
 
   function resetMaterials() { setMaterials(DEFAULT_MATERIALS); }
 
+  function parseAndApply() {
+    if (!parseText.trim()) return;
+    const text = parseText;
+    const info: string[] = [];
+
+    // ── Material matching ──────────────────────────
+    let bestMatId: string | undefined;
+    let bestScore = 0;
+    for (const mat of materials) {
+      const parts = mat.name.split(/\s+/);
+      let score = 0;
+      for (const part of parts) {
+        if (part.length >= 2 && text.includes(part)) score++;
+      }
+      if (score > bestScore) { bestScore = score; bestMatId = mat.id; }
+    }
+    if (bestMatId) {
+      const found = materials.find(m => m.id === bestMatId)!;
+      setMatId(bestMatId);
+      info.push(`วัสดุ: ${found.name}`);
+    }
+
+    // ── Dimension parsing ──────────────────────────
+    const dimMatch = text.match(/(\d+(?:\.\d+)?)\s*[xX×*]\s*(\d+(?:\.\d+)?)/);
+    if (dimMatch) {
+      setWidth(dimMatch[1]);
+      setHeight(dimMatch[2]);
+      const after = text.slice((dimMatch.index ?? 0) + dimMatch[0].length, (dimMatch.index ?? 0) + dimMatch[0].length + 15);
+      let du: 'cm' | 'm' | 'in' | 'ft' | undefined;
+      if (/ซม|ซ\.ม|cm/i.test(after)) du = 'cm';
+      else if (/เมตร|ม\.| ม |^ม/i.test(after) || / m[ .]| m$/i.test(after)) du = 'm';
+      else if (/นิ้ว|inch|in/i.test(after)) du = 'in';
+      else if (/ฟุต| ft/i.test(after)) du = 'ft';
+      if (du) setUnit(du);
+      info.push(`ขนาด: ${dimMatch[1]}×${dimMatch[2]}${du ? ' ' + du : ''}`);
+    }
+
+    // ── Quantity parsing ───────────────────────────
+    const qtyMatch = text.match(/(\d+)\s*(?:ผืน|ชิ้น|แผ่น|อัน|pcs?)/i)
+      ?? text.match(/จำนวน\s*:?\s*(\d+)/i);
+    if (qtyMatch) {
+      setQty(qtyMatch[1]);
+      info.push(`จำนวน: ${qtyMatch[1]}`);
+    }
+
+    setParseInfo(info.length > 0 ? info : ['ไม่พบข้อมูล — ลองพิมพ์ชื่อวัสดุ ขนาด หรือจำนวน']);
+  }
+
   return (
     <main style={{ maxWidth: 520, margin: '0 auto', padding: '16px 14px 80px', background: '#f8fafc', minHeight: '100vh' }}>
 
@@ -121,6 +171,39 @@ export default function CalcPage() {
           <div style={{ fontSize: 20, fontWeight: 800, color: '#1e293b' }}>คำนวณราคาป้าย</div>
           <div style={{ fontSize: 12, color: '#6b7280' }}>Idea Inkjet · Price Calculator</div>
         </div>
+      </div>
+
+      {/* ── พิมพ์รายละเอียด ──────────────────────── */}
+      <div style={card}>
+        <div style={sectionTitle}>🔍 พิมพ์รายละเอียด</div>
+        <textarea
+          value={parseText}
+          onChange={e => { setParseText(e.target.value); setParseInfo([]); }}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); parseAndApply(); } }}
+          placeholder={'เช่น: ไวนิลหลังขาว 60×90 ซม. 3 ผืน\nหรือ: สติ๊กเกอร์พิมพ์ 1×2 เมตร 5 ชิ้น'}
+          rows={2}
+          style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.7 }}
+        />
+        <button onClick={parseAndApply} style={{
+          marginTop: 8, width: '100%', padding: '10px', borderRadius: 10, border: 'none',
+          cursor: 'pointer', background: '#7c3aed', color: 'white', fontWeight: 700, fontSize: 14,
+        }}>
+          ✨ ใส่ข้อมูลอัตโนมัติ
+        </button>
+        {parseInfo.length > 0 && (
+          <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {parseInfo.map((t, i) => (
+              <span key={i} style={{
+                background: t.startsWith('ไม่พบ') ? '#fef9c3' : '#f0fdf4',
+                color: t.startsWith('ไม่พบ') ? '#854d0e' : '#166534',
+                border: `1px solid ${t.startsWith('ไม่พบ') ? '#fde68a' : '#bbf7d0'}`,
+                borderRadius: 20, padding: '3px 10px', fontSize: 12, fontWeight: 600,
+              }}>
+                {t.startsWith('ไม่พบ') ? '⚠️' : '✓'} {t}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ── วัสดุ ─────────────────────────────────── */}
