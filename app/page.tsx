@@ -28,6 +28,15 @@ export default function MenuPage() {
       border: '#a5f3fc',
     },
     {
+      href: '/scan',
+      icon: '📷',
+      title: 'สแกนใบงาน',
+      desc: 'ถ่ายรูปใบงาน · AI วิเคราะห์ · บันทึกอัตโนมัติ',
+      color: '#059669',
+      bg: '#ecfdf5',
+      border: '#a7f3d0',
+    },
+    {
       href: '/setup',
       icon: '🔧',
       title: 'ตั้งค่าระบบ',
