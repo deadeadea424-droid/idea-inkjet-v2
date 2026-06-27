@@ -149,6 +149,15 @@ export default function ScanPage() {
       status,
       detail: detailParts.join('\n'),
     };
+    if (!customerId) {
+      const { data: existing } = await supabase.from('customers').select('id').eq('name', 'ไม่ระบุลูกค้า').maybeSingle();
+      if (existing) {
+        customerId = existing.id;
+      } else {
+        const { data: created } = await supabase.from('customers').insert({ name: 'ไม่ระบุลูกค้า' }).select('id').single();
+        customerId = created?.id ?? null;
+      }
+    }
     if (customerId) payload.customer_id = customerId;
     if (d.work_date) payload.due_date = parseThaiDate(d.work_date);
 
