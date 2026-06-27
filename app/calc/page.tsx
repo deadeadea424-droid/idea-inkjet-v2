@@ -18,8 +18,7 @@ const DEFAULT_MATERIALS: Material[] = [
   { id: 'sticker_print', name: 'สติ๊กเกอร์พิมพ์', pricePerSqm: 400 },
   { id: 'sticker_diecut', name: 'สติ๊กเกอร์พิมพ์ไดคัท', pricePerSqm: 400 },
   { id: 'sticker_clear', name: 'สติ๊กเกอร์ใส', pricePerSqm: 500 },
-  { id: 'xbanner', name: 'X-Banner (ผ้า + โครง)', pricePerSqm: 0, fixedPrice: 350 },
-  { id: 'xstand_v60', name: 'X Stand ไวนิล 60×160 ซม.', pricePerSqm: 0, fixedPrice: 600 },
+{ id: 'xstand_v60', name: 'X Stand ไวนิล 60×160 ซม.', pricePerSqm: 0, fixedPrice: 600 },
   { id: 'xstand_v80', name: 'X Stand ไวนิล 80×180 ซม.', pricePerSqm: 0, fixedPrice: 800 },
   { id: 'xstand_p60', name: 'X Stand กระดาษก๊อซซี่ PP 60×160 ซม.', pricePerSqm: 0, fixedPrice: 800 },
   { id: 'xstand_p80', name: 'X Stand กระดาษก๊อซซี่ PP 80×180 ซม.', pricePerSqm: 0, fixedPrice: 1000 },
@@ -36,7 +35,7 @@ const DEFAULT_MATERIALS: Material[] = [
 
 const fmt = (n: number) => Math.round(n).toLocaleString('th-TH');
 
-const MATERIALS_VER = 'v9';
+const MATERIALS_VER = 'v10';
 
 function useLocalStorage<T>(key: string, init: T, version?: string): [T, (v: T) => void] {
   const [val, setVal] = useState<T>(init);
