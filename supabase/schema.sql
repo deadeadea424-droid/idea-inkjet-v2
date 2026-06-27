@@ -74,6 +74,33 @@ CREATE TABLE payments (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE payment_slips (
+  id             BIGSERIAL PRIMARY KEY,
+  order_id       BIGINT REFERENCES orders(id) ON DELETE CASCADE,
+  customer_id    BIGINT REFERENCES customers(id),
+  amount         NUMERIC NOT NULL,
+  transferred_at TIMESTAMPTZ,
+  reference_no   TEXT,
+  slip_url       TEXT,
+  note           TEXT,
+  status         TEXT DEFAULT 'pending',
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE assessments (
+  id                  BIGSERIAL PRIMARY KEY,
+  order_id            BIGINT REFERENCES orders(id) ON DELETE CASCADE,
+  customer_id         BIGINT REFERENCES customers(id),
+  overall_rating      SMALLINT CHECK (overall_rating BETWEEN 1 AND 5),
+  quality_rating      SMALLINT CHECK (quality_rating BETWEEN 1 AND 5),
+  service_rating      SMALLINT CHECK (service_rating BETWEEN 1 AND 5),
+  timeliness_rating   SMALLINT CHECK (timeliness_rating BETWEEN 1 AND 5),
+  communication_rating SMALLINT CHECK (communication_rating BETWEEN 1 AND 5),
+  comment             TEXT,
+  created_at          TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (order_id)
+);
+
 -- ========================
 -- Row Level Security
 -- (open policy for development - restrict per user role in production)
@@ -90,3 +117,31 @@ CREATE POLICY "Allow all" ON employees FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all" ON orders FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all" ON order_status_logs FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all" ON payments FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE payment_slips ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all" ON payment_slips FOR ALL USING (true) WITH CHECK (true);
+
+CREATE TABLE employee_ratings (
+  id            BIGSERIAL PRIMARY KEY,
+  assessment_id BIGINT REFERENCES assessments(id) ON DELETE CASCADE,
+  order_id      BIGINT REFERENCES orders(id) ON DELETE CASCADE,
+  employee_id   BIGINT REFERENCES employees(id),
+  employee_role TEXT,
+  rating        SMALLINT CHECK (rating BETWEEN 1 AND 5),
+  comment       TEXT,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE employee_ratings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all" ON employee_ratings FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE assessments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all" ON assessments FOR ALL USING (true) WITH CHECK (true);
+
+CREATE TABLE calc_access_logs (
+  id            BIGSERIAL PRIMARY KEY,
+  employee_id   BIGINT REFERENCES employees(id),
+  employee_name TEXT NOT NULL,
+  accessed_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE calc_access_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all" ON calc_access_logs FOR ALL USING (true) WITH CHECK (true);
