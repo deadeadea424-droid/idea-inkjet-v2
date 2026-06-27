@@ -59,7 +59,10 @@ ${MATERIALS_LIST}
 
 กฎ:
 - ถ้าไม่แน่ใจ ให้ใส่ null ดีกว่าเดา
-- ส่งคืน JSON เท่านั้น ห้ามมีข้อความอื่น`;
+- ส่งคืน JSON เท่านั้น ห้ามมีข้อความอื่น
+- "1 เมตรคูณ 2 เมตร" → width=1, height=2, unit=m
+- "50×90 ซม." → width=50, height=90, unit=cm
+- width และ height ต้องเป็นตัวเลขล้วน ไม่มีหน่วย`;
 
 export async function POST(req: NextRequest) {
   try {

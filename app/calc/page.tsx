@@ -365,10 +365,11 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
       for (const kw of kws) if (tl.includes(kw)) score += kw.length * 2;
       if (score > bestScore) { bestScore = score; bestMatId = m.id; }
     }
+    const UNIT_WORD = '(?:เมตร|ม\\.?|ซม\\.?|ซ\\.ม\\.?|นิ้ว|ฟุต|cm|m|in|ft)?';
     const dimMatch =
       text.match(/(\d+(?:\.\d+)?)\s*[xX×*]\s*(\d+(?:\.\d+)?)/) ??
       text.match(/กว้าง\s*(\d+(?:\.\d+)?)[^0-9]{0,10}(?:สูง|ยาว)\s*(\d+(?:\.\d+)?)/) ??
-      text.match(/(\d+(?:\.\d+)?)\s*คูณ\s*(\d+(?:\.\d+)?)/);
+      text.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*${UNIT_WORD}\\s*คูณ\\s*(\\d+(?:\\.\\d+)?)`));
     let parsedW = 0, parsedH = 0, du: 'cm'|'m'|'in'|'ft'|undefined;
     if (dimMatch) {
       parsedW = parseFloat(dimMatch[1]) || 0;
