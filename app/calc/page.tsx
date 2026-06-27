@@ -69,11 +69,9 @@ export default function CalcPage() {
   const [height, setHeight] = useState('');
   const [unit, setUnit] = useState<'cm' | 'm' | 'in' | 'ft'>('cm');
   const [qty, setQty] = useState('1');
-  const [minPrice, setMinPrice] = useState('50');
   const [finishing, setFinishing] = useLocalStorage<Finishing[]>('calc_finishing', DEFAULT_FINISHING);
   const [showEditMat, setShowEditMat] = useState(false);
   const [showEditFin, setShowEditFin] = useState(false);
-  const [margin, setMargin] = useState('0');
   const [fixedPrices, setFixedPrices] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
 
@@ -81,8 +79,7 @@ export default function CalcPage() {
   const wNum = parseFloat(width) || 0;
   const hNum = parseFloat(height) || 0;
   const qNum = Math.max(1, parseInt(qty) || 1);
-  const minNum = parseFloat(minPrice) || 0;
-  const marginPct = parseFloat(margin) || 0;
+
 
   const toM = (n: number) => unit === 'cm' ? n / 100 : unit === 'in' ? n * 0.0254 : unit === 'ft' ? n * 0.3048 : n;
   const wM = toM(wNum);
@@ -106,9 +103,8 @@ export default function CalcPage() {
   const basePricePerPiece = isFixed ? fixedVal : mat.pricePerSqm * sqm;
   const finishingTotalPerPiece = finishing.reduce((s, f) => s + calcFinishingCost(f), 0);
   const rawPerPiece = basePricePerPiece + finishingTotalPerPiece;
-  const pricePerPiece = Math.max(rawPerPiece, sqm > 0 || isFixed ? minNum : 0);
-  const priceAfterMargin = pricePerPiece * (1 + marginPct / 100);
-  const total = priceAfterMargin * qNum;
+  const pricePerPiece = rawPerPiece;
+  const total = pricePerPiece * qNum;
 
   function copyResult() {
     const w = unit === 'cm' ? `${wNum}×${hNum} ซม.` : `${wNum}×${hNum} ม.`;
@@ -118,7 +114,7 @@ export default function CalcPage() {
       `ขนาด: ${w} (${sqm.toFixed(2)} ตร.ม.)`,
       `จำนวน: ${qNum} ชิ้น`,
       fins ? `งานตกแต่ง: ${fins}` : '',
-      `ราคา/ชิ้น: ${fmt(priceAfterMargin)} บาท`,
+      `ราคา/ชิ้น: ${fmt(pricePerPiece)} บาท`,
       `รวม: ${fmt(total)} บาท`,
     ].filter(Boolean).join('\n');
     navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2500); });
@@ -250,22 +246,11 @@ export default function CalcPage() {
         )}
       </div>}
 
-      {/* ── จำนวน + ราคาขั้นต่ำ ─────────────────── */}
+      {/* ── จำนวน ────────────────────────────────── */}
       {!isQuote && <div style={card}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <div>
-            <label style={labelStyle}>จำนวน (ชิ้น)</label>
-            <input type="number" min="1" value={qty} onChange={e => setQty(e.target.value)} style={inputStyle} />
-          </div>
-          <div>
-            <label style={labelStyle}>ราคาขั้นต่ำ/ชิ้น (บาท)</label>
-            <input type="number" value={minPrice} onChange={e => setMinPrice(e.target.value)} style={inputStyle} />
-          </div>
-        </div>
         <div>
-          <label style={labelStyle}>กำไร / Margin (%)</label>
-          <input type="number" value={margin} onChange={e => setMargin(e.target.value)}
-            placeholder="0 = ไม่เพิ่ม" style={inputStyle} />
+          <label style={labelStyle}>จำนวน (ชิ้น)</label>
+          <input type="number" min="1" value={qty} onChange={e => setQty(e.target.value)} style={inputStyle} />
         </div>
       </div>}
 
@@ -331,14 +316,8 @@ export default function CalcPage() {
             {finishing.filter(f => f.enabled).map(f => (
               <Row key={f.id} label={f.name} value={`${fmt(calcFinishingCost(f))} บาท`} light />
             ))}
-            {rawPerPiece < minNum && sqm > 0 && (
-              <Row label="ปรับขึ้นราคาขั้นต่ำ" value={`${fmt(minNum)} บาท`} light />
-            )}
-            {marginPct > 0 && (
-              <Row label={`Margin ${marginPct}%`} value={`+${fmt(priceAfterMargin - pricePerPiece)} บาท`} light />
-            )}
             <div style={{ borderTop: '1px solid #334155', paddingTop: 12, marginTop: 6 }}>
-              <Row label="ราคา / ชิ้น" value={`${fmt(priceAfterMargin)} บาท`} big />
+              <Row label="ราคา / ชิ้น" value={`${fmt(pricePerPiece)} บาท`} big />
               {qNum > 1 && <Row label={`จำนวน ${qNum} ชิ้น`} value={`${fmt(total)} บาท`} big />}
             </div>
           </div>
