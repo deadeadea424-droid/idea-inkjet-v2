@@ -260,10 +260,18 @@ export default function CalcPage() {
             </div>
           </div>
 
-          <div style={{ marginTop: 14, padding: '10px 12px', background: '#1e3a5f', borderRadius: 8,
-            fontSize: 12, color: '#93c5fd', lineHeight: 1.6 }}>
-            ⚠️ ชิ้นงานเล็กหรือมีรายละเอียดมาก ใช้เวลาทำนานกว่า<br/>
-            ราคาอาจเพิ่มขึ้นตามดุลพินิจของช่าง
+          <div style={{ marginTop: 14, background: '#1e3a5f', borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ background: '#1e40af', padding: '8px 12px', fontSize: 12, fontWeight: 700, color: '#bfdbfe' }}>
+              📋 ก่อนแจ้งราคาลูกค้า — ต้องประเมินก่อนทุกครั้ง
+            </div>
+            <div style={{ padding: '10px 12px', fontSize: 12, color: '#93c5fd', lineHeight: 1.9 }}>
+              <b style={{ color: '#bfdbfe' }}>1. ใครทำ?</b> ประเมินว่างานนี้ผ่านกระบวนการอะไรบ้าง<br/>
+              — พิมพ์ · ตัด · ติด · ประกอบ · เชื่อม · ติดตั้ง ฯลฯ<br/>
+              <b style={{ color: '#bfdbfe' }}>2. เครื่องจักรไหน?</b> เครื่องพิมพ์ / เลเซอร์ / CNC / เครื่องตัด ฯลฯ<br/>
+              <b style={{ color: '#bfdbfe' }}>3. เวลาที่ใช้?</b> ชิ้นเล็กหรือรายละเอียดมาก ใช้เวลานานกว่า<br/>
+              <b style={{ color: '#bfdbfe' }}>4. จำนวนน้อย?</b> สั่งน้อยชิ้น ต้นทุนต่อชิ้นสูง — ควรปรับราคาให้สมเหตุสมผล<br/>
+              <b style={{ color: '#fbbf24' }}>⚠️ เอะใจก่อนแจ้ง:</b> ราคาที่คำนวณได้สมควรกับงานที่ทำหรือไม่? ถ้าไม่ — ปรับเพิ่ม
+            </div>
           </div>
 
           <button onClick={copyResult} style={{
