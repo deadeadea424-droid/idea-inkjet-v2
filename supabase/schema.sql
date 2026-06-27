@@ -135,3 +135,13 @@ ALTER TABLE employee_ratings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all" ON employee_ratings FOR ALL USING (true) WITH CHECK (true);
 ALTER TABLE assessments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all" ON assessments FOR ALL USING (true) WITH CHECK (true);
+
+CREATE TABLE calc_access_logs (
+  id            BIGSERIAL PRIMARY KEY,
+  employee_id   BIGINT REFERENCES employees(id),
+  employee_name TEXT NOT NULL,
+  accessed_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE calc_access_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all" ON calc_access_logs FOR ALL USING (true) WITH CHECK (true);

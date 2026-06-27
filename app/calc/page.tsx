@@ -43,6 +43,8 @@ function CalcLogin({ onLogin }: { onLogin: (empId: number, empName: string) => v
     const emp = employees.find(e => e.id === empId);
     const session = { empId, empName: emp?.name ?? '', ts: Date.now() };
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    // Log access to database (fire-and-forget)
+    supabase.from('calc_access_logs').insert({ employee_id: empId, employee_name: emp?.name ?? '' });
     onLogin(empId as number, emp?.name ?? '');
   }
 

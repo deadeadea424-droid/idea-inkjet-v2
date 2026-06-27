@@ -221,6 +221,9 @@ export default function Home() {
   const [paymentSlips,  setPaymentSlips]  = useState<any[]>([]);
   const [slipViewing,   setSlipViewing]   = useState<number | null>(null);
   const [calcAccess,    setCalcAccess]    = useState<Record<number, boolean>>({});
+  const [settingsUnlocked, setSettingsUnlocked] = useState(false);
+  const [settingsPinInput, setSettingsPinInput] = useState('');
+  const [settingsPinErr,   setSettingsPinErr]   = useState('');
 
   // ── Load ────────────────────────────────────────────────────────────────────
   async function load() {
@@ -389,6 +392,7 @@ export default function Home() {
   useEffect(() => {
     if (tab === 'assessments') loadAssessments();
     if (tab === 'slips') loadPaymentSlips();
+    if (tab !== 'employees') { setSettingsUnlocked(false); setSettingsPinInput(''); setSettingsPinErr(''); }
   }, [tab]);
 
   async function toggleCalcAccess(empId: number) {
@@ -1364,8 +1368,47 @@ export default function Home() {
               </div>
             </div>
           </div>
-          <OwnerPinManager ownerPin={ownerPin} onSave={saveOwnerPin} />
-          <ShopSettingsManager settings={shopSettings} onSave={saveShopSettings} />
+          {/* ─── Settings gate: owner PIN required ─── */}
+          {!settingsUnlocked ? (
+            <div className="card" style={{ maxWidth:420, margin:'0 auto' }}>
+              <h3 style={{ margin:'0 0 10px', fontSize:15 }}>🔐 ตั้งค่าระบบ (สำหรับเจ้าของร้านเท่านั้น)</h3>
+              <p style={{ fontSize:13, color:'var(--muted)', marginBottom:12 }}>
+                กรุณาใส่รหัสเจ้าของร้านเพื่อเข้าถึงการตั้งค่า
+              </p>
+              <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                <input
+                  type="password"
+                  placeholder="รหัสเจ้าของร้าน"
+                  value={settingsPinInput}
+                  onChange={e => { setSettingsPinInput(e.target.value); setSettingsPinErr(''); }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      if (!ownerPin) { setSettingsUnlocked(true); setSettingsPinInput(''); return; }
+                      if (settingsPinInput === ownerPin) { setSettingsUnlocked(true); setSettingsPinInput(''); }
+                      else { setSettingsPinErr('รหัสไม่ถูกต้อง'); setSettingsPinInput(''); }
+                    }
+                  }}
+                  style={{ flex:1, minWidth:160 }}
+                />
+                <button className="btnGreen btnSm" onClick={() => {
+                  if (!ownerPin) { setSettingsUnlocked(true); setSettingsPinInput(''); return; }
+                  if (settingsPinInput === ownerPin) { setSettingsUnlocked(true); setSettingsPinInput(''); }
+                  else { setSettingsPinErr('รหัสไม่ถูกต้อง'); setSettingsPinInput(''); }
+                }}>เข้าถึงการตั้งค่า</button>
+              </div>
+              {settingsPinErr && <p style={{ color:'#dc2626', fontSize:13, marginTop:6 }}>{settingsPinErr}</p>}
+            </div>
+          ) : (
+            <>
+              <OwnerPinManager ownerPin={ownerPin} onSave={saveOwnerPin} />
+              <ShopSettingsManager settings={shopSettings} onSave={saveShopSettings} />
+              <div style={{ textAlign:'center', marginTop:8 }}>
+                <button className="btnRed btnSm" onClick={() => { setSettingsUnlocked(false); setSettingsPinInput(''); }}>
+                  🔒 ล็อคการตั้งค่า
+                </button>
+              </div>
+            </>
+          )}
         </section>
       )}
 
