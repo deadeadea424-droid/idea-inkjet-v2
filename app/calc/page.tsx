@@ -15,7 +15,7 @@ function CalcLogin({ onLogin }: { onLogin: (empId: number, empName: string) => v
   useEffect(() => {
     async function loadEmps() {
       const [empRes, settingsRes] = await Promise.all([
-        supabase.from('employees').select('id, name').order('name'),
+        supabase.from('employees').select('*').order('name'),
         supabase.from('app_settings').select('key, value').like('key', 'calc_emp_%'),
       ]);
       const accessSet = new Set<number>(
@@ -23,7 +23,11 @@ function CalcLogin({ onLogin }: { onLogin: (empId: number, empName: string) => v
           .filter(r => r.value === 'true')
           .map(r => Number(r.key.replace('calc_emp_', '')))
       );
-      const list = (empRes.data ?? []).filter((e: any) => accessSet.has(e.id));
+      const raw = (empRes.data ?? []).filter((e: any) => accessSet.has(Number(e.id)));
+      const list = raw.map((e: any) => ({
+        id: Number(e.id),
+        name: e.name || e.employee_name || `พนักงาน ${e.id}`,
+      }));
       setEmployees(list);
       if (list.length > 0) setEmpId(list[0].id);
       setLoading(false);
