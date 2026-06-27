@@ -42,6 +42,12 @@ const SYSTEM_PROMPT = `คุณเป็นผู้ช่วยวิเคร
 - ft = ฟุต, ฟิต, feet, foot, ft, '
 
 ตัวอย่าง:
+input:  "ป้ายไวนิลขนาด 1 เมตร คูณ 2 เมตร จำนวน 3 ป้าย"
+output: [{"material":"ไวนิล","width":"1","height":"2","unit":"m","qty":"3"}]
+
+input:  "ไวนิล 1 เมตร x 2 เมตร 3 ผืน"
+output: [{"material":"ไวนิล","width":"1","height":"2","unit":"m","qty":"3"}]
+
 input:  "ไวนิล 1×2 ม. 3 ผืน และสติ๊กเกอร์พิมพ์ 60×90 ซม. 5 ชิ้น"
 output: [{"material":"ไวนิล","width":"1","height":"2","unit":"m","qty":"3"},{"material":"สติ๊กเกอร์พิมพ์","width":"60","height":"90","unit":"cm","qty":"5"}]
 

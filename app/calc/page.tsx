@@ -473,12 +473,18 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
 
     const results: ParsedItem[] = [];
 
+    // kwMatch unit is used as fallback when AI doesn't return a unit
+    const kwFallback = kwMatch(text);
+
     if (aiItems.length > 0) {
       // ── AI path: AI understands text → local code matches material + computes price ──
       for (const ai of aiItems) {
         const parsedW = ai.width ? parseFloat(ai.width) : 0;
         const parsedH = ai.height ? parseFloat(ai.height) : 0;
-        const du = ai.unit && ['cm','m','in','ft'].includes(ai.unit) ? ai.unit as 'cm'|'m'|'in'|'ft' : undefined;
+        const aiUnit = ai.unit && ['cm','m','in','ft'].includes(ai.unit) ? ai.unit as 'cm'|'m'|'in'|'ft' : undefined;
+        // When AI doesn't return a unit, fall back to local regex detection rather than
+        // blindly defaulting to 'cm', which would miscompute meter-scale dimensions.
+        const du = aiUnit ?? kwFallback.du;
         const parsedQ = ai.qty ? Math.max(1, parseInt(ai.qty) || 1) : 1;
         // Match AI's free-text material description against local materials list
         const matId = ai.material ? scoreMaterial(ai.material) : undefined;
@@ -492,7 +498,8 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
       if (firstMat) setMatId(firstMat.id);
       if (first.width) setWidth(first.width);
       if (first.height) setHeight(first.height);
-      if (first.unit && ['cm','m','in','ft'].includes(first.unit)) setUnit(first.unit as 'cm'|'m'|'in'|'ft');
+      const firstDu = (first.unit && ['cm','m','in','ft'].includes(first.unit) ? first.unit as 'cm'|'m'|'in'|'ft' : undefined) ?? kwFallback.du;
+      if (firstDu) setUnit(firstDu);
       if (first.qty) setQty(first.qty);
       if (results.length === 0) setParseInfo(['ไม่พบข้อมูล — ลองพิมพ์ชื่อวัสดุ ขนาด หรือจำนวน']);
     } else {
