@@ -374,11 +374,17 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     if (dimMatch) {
       parsedW = parseFloat(dimMatch[1]) || 0;
       parsedH = parseFloat(dimMatch[2]) || 0;
-      const around = text.slice(Math.max(0, (dimMatch.index ?? 0) - 5), (dimMatch.index ?? 0) + dimMatch[0].length + 20) + ' ' + text;
-      if (/ซม|ซ\.ม\.?|centimeter|cm/i.test(around)) du = 'cm';
+      // Check near the match first (higher priority), then full text as fallback
+      const near = text.slice(Math.max(0, (dimMatch.index ?? 0) - 5), (dimMatch.index ?? 0) + dimMatch[0].length + 30);
+      const around = near + ' ' + text;
+      if (/ซม|ซ\.ม\.?|เซนติเมตร|centimeter|cm/i.test(near)) du = 'cm';
+      else if (/นิ้ว|inch|"/i.test(near)) du = 'in';
+      else if (/ฟุต|feet|foot|ft/i.test(near)) du = 'ft';
+      else if (/\bเมตร\b|meter|metre|\bm\b/i.test(near)) du = 'm';
+      else if (/ซม|ซ\.ม\.?|เซนติเมตร|centimeter|cm/i.test(around)) du = 'cm';
       else if (/นิ้ว|inch|"/i.test(around)) du = 'in';
-      else if (/ฟุต|feet|foot|ft|'/i.test(around)) du = 'ft';
-      else if (/เมตร|meter|metre|\bm\b/i.test(around)) du = 'm';
+      else if (/ฟุต|feet|foot|ft/i.test(around)) du = 'ft';
+      else if (/\bเมตร\b|meter|metre/i.test(around)) du = 'm';
     }
     const qtyMatch =
       text.match(/(\d+)\s*(?:ผืน|ชิ้น|แผ่น|อัน|ตัว|รูป|ใบ|pcs?|piece)/i) ??
