@@ -152,7 +152,6 @@ export default function ScanPage() {
       payment_type: 'เงินสด',
       file_status: 'ไม่มีไฟล์',
       finishing: '',
-      credit_days: 0,
       order_code: `SCAN-${Date.now()}`,
     };
     if (customerId) payload.customer_id = customerId;
