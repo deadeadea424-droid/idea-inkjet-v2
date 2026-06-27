@@ -372,7 +372,9 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     navigator.clipboard?.writeText(lines.join('\n')).then(() => { setCartCopied(true); setTimeout(() => setCartCopied(false), 2500); });
   }
 
-  function kwMatch(text: string): { matId?: string; parsedW: number; parsedH: number; du?: 'cm'|'m'|'in'|'ft'; parsedQ: number } {
+  // Score a free-text material description against the materials list.
+  // Returns the best-matching matId, or undefined if nothing scored.
+  function scoreMaterial(text: string): string | undefined {
     const tl = text.toLowerCase();
     let bestMatId: string | undefined;
     let bestScore = 0;
@@ -382,6 +384,10 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
       for (const kw of kws) if (tl.includes(kw)) score += kw.length * 2;
       if (score > bestScore) { bestScore = score; bestMatId = m.id; }
     }
+    return bestScore > 0 ? bestMatId : undefined;
+  }
+
+  function kwMatch(text: string): { matId?: string; parsedW: number; parsedH: number; du?: 'cm'|'m'|'in'|'ft'; parsedQ: number } {
     const UNIT_WORD = '(?:เมตร|ม\\.?|ซม\\.?|ซ\\.ม\\.?|นิ้ว|ฟุต|cm|m|in|ft)?';
     const dimMatch =
       text.match(/(\d+(?:\.\d+)?)\s*[xX×*]\s*(\d+(?:\.\d+)?)/) ??
@@ -411,7 +417,7 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
       text.match(/(\d+)\s*(?:ผืน|ชิ้น|แผ่น|อัน|ตัว|รูป|ใบ|pcs?|piece)/i) ??
       text.match(/จำนวน\s*[:\s]*(\d+)/i);
     const parsedQ = qtyMatch ? Math.max(1, parseInt(qtyMatch[1]) || 1) : 1;
-    return { matId: bestScore > 0 ? bestMatId : undefined, parsedW, parsedH, du, parsedQ };
+    return { matId: scoreMaterial(text), parsedW, parsedH, du, parsedQ };
   }
 
   function calcItemPrice(mId: string | undefined, parsedW: number, parsedH: number, du: 'cm'|'m'|'in'|'ft'|undefined, parsedQ: number): Omit<ParsedItem, 'isQuote'> | null {
@@ -454,7 +460,8 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     setParseItems([]);
 
     // ── Try AI first ─────────────────────────────────
-    let aiItems: { matId?: string; width?: string; height?: string; unit?: string; qty?: string }[] = [];
+    // AI returns material as free-text Thai description; local scoreMaterial() matches to matId.
+    let aiItems: { material?: string; width?: string; height?: string; unit?: string; qty?: string }[] = [];
     try {
       const res = await fetch('/api/parse-calc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
       if (res.ok) {
@@ -467,18 +474,21 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     const results: ParsedItem[] = [];
 
     if (aiItems.length > 0) {
-      // ── AI multi-item path ────────────────────────
+      // ── AI path: AI understands text → local code matches material + computes price ──
       for (const ai of aiItems) {
         const parsedW = ai.width ? parseFloat(ai.width) : 0;
         const parsedH = ai.height ? parseFloat(ai.height) : 0;
         const du = ai.unit && ['cm','m','in','ft'].includes(ai.unit) ? ai.unit as 'cm'|'m'|'in'|'ft' : undefined;
         const parsedQ = ai.qty ? Math.max(1, parseInt(ai.qty) || 1) : 1;
-        const computed = calcItemPrice(ai.matId, parsedW, parsedH, du, parsedQ);
+        // Match AI's free-text material description against local materials list
+        const matId = ai.material ? scoreMaterial(ai.material) : undefined;
+        const computed = calcItemPrice(matId, parsedW, parsedH, du, parsedQ);
         if (computed) results.push({ ...computed, isQuote: false });
       }
       // Fill manual form from first item for convenience
       const first = aiItems[0];
-      const firstMat = first.matId ? materials.find(m => m.id === first.matId) : null;
+      const firstMatId = first.material ? scoreMaterial(first.material) : undefined;
+      const firstMat = firstMatId ? materials.find(m => m.id === firstMatId) : null;
       if (firstMat) setMatId(firstMat.id);
       if (first.width) setWidth(first.width);
       if (first.height) setHeight(first.height);
