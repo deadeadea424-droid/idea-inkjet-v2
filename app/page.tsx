@@ -217,6 +217,8 @@ export default function Home() {
   const [editEmp,      setEditEmp]      = useState<Employee | null>(null);
   const [editEmpForm,  setEditEmpForm]  = useState({ name:'', position:'', role:'graphic', pin:'' });
 
+  const [assessments,  setAssessments]  = useState<any[]>([]);
+
   // ── Load ────────────────────────────────────────────────────────────────────
   async function load() {
     setLoading(true); setError('');
@@ -354,6 +356,18 @@ export default function Home() {
     }
     return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current); };
   }, [role]);
+
+  async function loadAssessments() {
+    const { data } = await supabase
+      .from('assessments')
+      .select('*, orders(id, order_code, title, customers(name))')
+      .order('created_at', { ascending: false });
+    setAssessments(data || []);
+  }
+
+  useEffect(() => {
+    if (tab === 'assessments') loadAssessments();
+  }, [tab]);
 
   function doLogin(r: 'owner' | 'employee' | 'viewer', empId?: number, edit?: boolean) {
     setRole(r); setEditMode(!!edit);
@@ -843,6 +857,7 @@ export default function Home() {
     ['tracking','ติดตามงาน'],  ['orders','งานทั้งหมด'],
     ['unpaid','ค้างชำระ'],     ['customers','ลูกค้า'],
     ['employees','พนักงาน'],   ['analytics','วิเคราะห์'],
+    ['assessments','ประเมินพนักงาน'],
   ];
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1331,6 +1346,124 @@ export default function Home() {
           </div>
         </section>
       )}
+
+      {/* ═══ ASSESSMENTS ═════════════════════════════════════════════════════ */}
+      {tab === 'assessments' && (() => {
+        const avgOverall = assessments.length > 0
+          ? (assessments.reduce((s, a) => s + (a.overall_rating || 0), 0) / assessments.length).toFixed(1)
+          : null;
+        const starLabel = (n: number) => ['','ต้องปรับปรุง','พอใช้','ดี','ดีมาก','ยอดเยี่ยม'][n] || '';
+        const starBar = (n: number) => '★'.repeat(n) + '☆'.repeat(5 - n);
+        const criteriaLabels: Record<string, string> = {
+          quality_rating: 'คุณภาพงาน',
+          service_rating: 'การบริการ',
+          timeliness_rating: 'ความตรงเวลา',
+          communication_rating: 'การสื่อสาร',
+        };
+
+        const avgByCriteria = Object.keys(criteriaLabels).map(key => {
+          const vals = assessments.map(a => a[key] || 0).filter(v => v > 0);
+          return { key, label: criteriaLabels[key], avg: vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0 };
+        });
+
+        return (
+          <section>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:16 }}>
+              <div className="card" style={{ textAlign:'center', padding:'14px 10px' }}>
+                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>การประเมินทั้งหมด</div>
+                <div style={{ fontSize:24, fontWeight:800, color:'#1d4ed8' }}>{assessments.length}</div>
+              </div>
+              <div className="card" style={{ textAlign:'center', padding:'14px 10px' }}>
+                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>คะแนนเฉลี่ยโดยรวม</div>
+                <div style={{ fontSize:24, fontWeight:800, color: avgOverall && Number(avgOverall) >= 4 ? '#16a34a' : avgOverall && Number(avgOverall) >= 3 ? '#d97706' : '#dc2626' }}>
+                  {avgOverall ?? '-'}<span style={{ fontSize:14, fontWeight:400 }}>/5</span>
+                </div>
+              </div>
+              <div className="card" style={{ textAlign:'center', padding:'14px 10px' }}>
+                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>คะแนน 5 ดาว</div>
+                <div style={{ fontSize:24, fontWeight:800, color:'#f59e0b' }}>
+                  {assessments.filter(a => a.overall_rating === 5).length}
+                </div>
+              </div>
+            </div>
+
+            {assessments.length > 0 && (
+              <div className="card" style={{ marginBottom:16 }}>
+                <h3 className="chartTitle">คะแนนเฉลี่ยแต่ละด้าน</h3>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:12, marginTop:10 }}>
+                  {avgByCriteria.map(({ key, label, avg }) => (
+                    <div key={key} style={{ background:'#f8fafc', borderRadius:10, padding:'12px 14px' }}>
+                      <div style={{ fontSize:12, color:'var(--muted)', marginBottom:4 }}>{label}</div>
+                      <div style={{ fontSize:20, fontWeight:800, color: avg >= 4 ? '#16a34a' : avg >= 3 ? '#d97706' : '#dc2626' }}>
+                        {avg > 0 ? avg.toFixed(1) : '-'}<span style={{ fontSize:12, fontWeight:400, color:'var(--muted)' }}>/5</span>
+                      </div>
+                      {avg > 0 && (
+                        <div style={{ fontSize:14, color:'#f59e0b', letterSpacing:1, marginTop:2 }}>
+                          {'★'.repeat(Math.round(avg))}{'☆'.repeat(5 - Math.round(avg))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {assessments.length === 0 ? (
+              <div className="card" style={{ textAlign:'center', padding:48, color:'var(--muted)' }}>
+                <div style={{ fontSize:40, marginBottom:12 }}>⭐</div>
+                <div style={{ fontWeight:600 }}>ยังไม่มีการประเมิน</div>
+                <div style={{ fontSize:13, marginTop:4 }}>ลูกค้าจะเห็นปุ่มประเมินในหน้าติดตามงาน</div>
+              </div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                {assessments.map((a: any) => (
+                  <div key={a.id} className="card">
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:8, marginBottom:10 }}>
+                      <div>
+                        {a.orders?.order_code && (
+                          <div style={{ fontSize:12, color:'var(--muted)', marginBottom:2 }}>{a.orders.order_code}</div>
+                        )}
+                        <div style={{ fontWeight:700, fontSize:15 }}>{a.orders?.title ?? `งาน #${a.order_id}`}</div>
+                        {a.orders?.customers?.name && (
+                          <div style={{ fontSize:13, color:'var(--muted)' }}>ลูกค้า: {a.orders.customers.name}</div>
+                        )}
+                      </div>
+                      <div style={{ textAlign:'right' }}>
+                        <div style={{ fontSize:22, color:'#f59e0b' }}>{starBar(a.overall_rating || 0)}</div>
+                        <div style={{ fontSize:12, fontWeight:700, color: (a.overall_rating||0) >= 4 ? '#16a34a' : '#d97706' }}>
+                          {starLabel(a.overall_rating || 0)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:6, marginBottom: a.comment ? 10 : 0 }}>
+                      {Object.entries(criteriaLabels).map(([key, label]) => (
+                        <div key={key} style={{ background:'#f8fafc', borderRadius:8, padding:'8px 10px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                          <span style={{ fontSize:12, color:'var(--muted)' }}>{label}</span>
+                          <span style={{ fontSize:13, fontWeight:700, color:'#1e293b' }}>
+                            {a[key] ?? '-'}<span style={{ color:'var(--muted)', fontWeight:400 }}>/5</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {a.comment && (
+                      <div style={{ background:'#fffbeb', border:'1px solid #fde68a', borderRadius:8, padding:'10px 12px', fontSize:13, color:'#374151', marginTop: 6 }}>
+                        <span style={{ fontSize:11, color:'#92400e', fontWeight:600 }}>ความคิดเห็น: </span>
+                        {a.comment}
+                      </div>
+                    )}
+
+                    <div style={{ marginTop:8, fontSize:11, color:'var(--muted)' }}>
+                      ประเมินเมื่อ: {new Date(a.created_at).toLocaleString('th-TH', { timeZone:'Asia/Bangkok', year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })()}
 
       {tab === 'unpaid' && (() => {
         const FOLLOWUP_STATUSES = [

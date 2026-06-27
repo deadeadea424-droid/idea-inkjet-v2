@@ -70,9 +70,10 @@ export default function CustomerPage() {
     </main>
   );
 
-  const DONE   = ['ชำระเงินแล้ว', 'ยกเลิก'];
-  const active = orders.filter(o => !DONE.includes(o.status));
-  const done   = orders.filter(o =>  DONE.includes(o.status));
+  const DONE     = ['ชำระเงินแล้ว', 'ยกเลิก'];
+  const ASSESSED = ['ลูกค้ารับแล้ว', 'ชำระเงินแล้ว', 'ค้างชำระ'];
+  const active   = orders.filter(o => !DONE.includes(o.status));
+  const done     = orders.filter(o =>  DONE.includes(o.status));
   const today  = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
 
   return (
@@ -173,6 +174,14 @@ export default function CustomerPage() {
                       )}
                     </div>
                   )}
+                  {ASSESSED.includes(o.status) && (
+                    <div style={{ marginTop: 12, borderTop: '1px solid #f3f4f6', paddingTop: 10 }}>
+                      <a href={`/assess/${o.id}`}
+                        style={{ display: 'inline-block', padding: '8px 18px', borderRadius: 8, background: '#dbeafe', color: '#1d4ed8', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+                        ⭐ ประเมินความพึงพอใจ
+                      </a>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -186,7 +195,7 @@ export default function CustomerPage() {
           <div style={{ fontWeight: 700, fontSize: 14, color: '#374151', marginBottom: 8 }}>งานที่เสร็จแล้ว</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {done.map(o => (
-              <div key={o.id} style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: 12, padding: '12px 16px', opacity: 0.7 }}>
+              <div key={o.id} style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: 12, padding: '12px 16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <div style={{ fontSize: 12, color: '#9ca3af' }}>{orderCode(o)}</div>
@@ -194,6 +203,14 @@ export default function CustomerPage() {
                   </div>
                   <StatusPill status={o.status} />
                 </div>
+                {o.status !== 'ยกเลิก' && (
+                  <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #f3f4f6' }}>
+                    <a href={`/assess/${o.id}`}
+                      style={{ display: 'inline-block', padding: '6px 14px', borderRadius: 8, background: '#f0fdf4', color: '#15803d', fontSize: 12, fontWeight: 600, textDecoration: 'none', border: '1px solid #bbf7d0' }}>
+                      ⭐ ประเมินความพึงพอใจ
+                    </a>
+                  </div>
+                )}
               </div>
             ))}
           </div>
