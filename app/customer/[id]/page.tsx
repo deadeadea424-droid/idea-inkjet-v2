@@ -14,6 +14,45 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
+function CopyBtn({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
+  }
+  return (
+    <button onClick={copy}
+      style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #bfdbfe', background: copied ? '#dbeafe' : 'white', color: copied ? '#1d4ed8' : '#6b7280', cursor: 'pointer', marginLeft: 6, whiteSpace: 'nowrap' }}>
+      {copied ? 'คัดลอกแล้ว ✓' : 'คัดลอก'}
+    </button>
+  );
+}
+
+function PaymentInfo() {
+  return (
+    <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: '14px 16px' }}>
+      <div style={{ fontWeight: 700, fontSize: 13, color: '#1d4ed8', marginBottom: 10 }}>💳 ช่องทางการชำระเงิน</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ background: 'white', borderRadius: 10, padding: '10px 12px', border: '1px solid #dbeafe' }}>
+          <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>ธนาคารกรุงไทย · บัญชีออมทรัพย์</div>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+            <span style={{ fontWeight: 800, fontSize: 18, color: '#1e293b', letterSpacing: 1 }}>2130555411</span>
+            <CopyBtn text="2130555411" />
+          </div>
+          <div style={{ fontSize: 12, color: '#374151', marginTop: 3 }}>ไอเดียอิงค์เจ็ท โดย นายอภิสิทธิ์ รักษ์วิริยะ</div>
+        </div>
+        <div style={{ background: 'white', borderRadius: 10, padding: '10px 12px', border: '1px solid #dbeafe' }}>
+          <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>พร้อมเพย์</div>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+            <span style={{ fontWeight: 800, fontSize: 18, color: '#1e293b', letterSpacing: 1 }}>0806544492</span>
+            <CopyBtn text="0806544492" />
+          </div>
+          <div style={{ fontSize: 12, color: '#374151', marginTop: 3 }}>ไอเดียอิงค์เจ็ท โดย นายอภิสิทธิ์ รักษ์วิริยะ</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CustomerPage() {
   const params     = useParams();
   const customerId = Number(params.id);
@@ -161,6 +200,11 @@ export default function CustomerPage() {
                       </div>
                     )}
                   </div>
+                  {Number(o.balance) > 0 && (
+                    <div style={{ marginTop: 12 }}>
+                      <PaymentInfo />
+                    </div>
+                  )}
                   {o.detail && (
                     <div>
                       <button onClick={() => setExpanded(isExp ? null : o.id)}
@@ -217,7 +261,13 @@ export default function CustomerPage() {
         </div>
       )}
 
-      <div style={{ textAlign: 'center', marginTop: 32, fontSize: 12, color: '#9ca3af' }}>
+      {/* Payment channels footer */}
+      <div style={{ marginTop: 28 }}>
+        <div style={{ fontWeight: 700, fontSize: 14, color: '#374151', marginBottom: 8 }}>ช่องทางการชำระเงิน</div>
+        <PaymentInfo />
+      </div>
+
+      <div style={{ textAlign: 'center', marginTop: 28, fontSize: 12, color: '#9ca3af' }}>
         Idea Inkjet · ระบบจัดการงานพิมพ์
       </div>
     </main>
