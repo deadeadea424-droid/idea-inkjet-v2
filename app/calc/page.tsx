@@ -246,6 +246,8 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
   const [parseInfo, setParseInfo] = useState<string[]>([]);
   type ParsedItem = { matName: string; isFixed: boolean; isQuote: boolean; dim?: string; sqm: number; qty: number; unitWord: string; pricePerPiece: number; total: number; vinylMin?: string; minTotalApplied?: boolean };
   const [parseItems, setParseItems] = useState<ParsedItem[]>([]);
+  type AnalysisItem = { materialRaw?: string; matName?: string; w?: number; h?: number; unit?: string; qty?: number };
+  const [analysisItems, setAnalysisItems] = useState<AnalysisItem[]>([]);
   const [parseAllCopied, setParseAllCopied] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [ownerPin, setOwnerPin] = useState('');
@@ -478,6 +480,7 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     setParsing(true);
     setParseInfo([]);
     setParseItems([]);
+    setAnalysisItems([]);
 
     // Step 1: Pre-split text into item segments locally
     const segments = segmentText(text);
@@ -499,6 +502,8 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     // kwMatch unit is used as fallback when AI doesn't return a unit
     const kwFallback = kwMatch(text);
 
+    const analysis: AnalysisItem[] = [];
+
     if (aiItems.length > 0) {
       for (const ai of aiItems) {
         const parsedW = ai.width ? parseFloat(ai.width) : 0;
@@ -506,18 +511,24 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
         const aiUnit = ai.unit && ['cm','m','in','ft'].includes(ai.unit) ? ai.unit as 'cm'|'m'|'in'|'ft' : undefined;
         const du = aiUnit ?? kwFallback.du;
         const parsedQ = ai.qty ? Math.max(1, parseInt(ai.qty) || 1) : 1;
-        const matId = ai.material ? scoreMaterial(ai.material) : undefined;
-        const computed = calcItemPrice(matId, parsedW, parsedH, du, parsedQ);
+        const mId = ai.material ? scoreMaterial(ai.material) : undefined;
+        const matchedMat = mId ? materials.find(m => m.id === mId) : undefined;
+        analysis.push({ materialRaw: ai.material ?? undefined, matName: matchedMat?.name, w: parsedW || undefined, h: parsedH || undefined, unit: du, qty: parsedQ });
+        const computed = calcItemPrice(mId, parsedW, parsedH, du, parsedQ);
         if (computed) results.push({ ...computed, isQuote: false });
       }
       if (results.length === 0) setParseInfo(['ไม่พบข้อมูล — ลองพิมพ์ชื่อวัสดุ ขนาด หรือจำนวน']);
     } else {
       // Fallback: keyword matching on full text
       const kw = kwMatch(text);
+      const matchedMat = kw.matId ? materials.find(m => m.id === kw.matId) : undefined;
+      analysis.push({ matName: matchedMat?.name, w: kw.parsedW || undefined, h: kw.parsedH || undefined, unit: kw.du, qty: kw.parsedQ });
       const computed = calcItemPrice(kw.matId, kw.parsedW, kw.parsedH, kw.du, kw.parsedQ);
       if (computed) results.push({ ...computed, isQuote: false });
       if (results.length === 0) setParseInfo(['ไม่พบข้อมูล — ลองพิมพ์ชื่อวัสดุ ขนาด หรือจำนวน']);
     }
+
+    setAnalysisItems(analysis);
 
     setParseItems(results);
 
@@ -558,7 +569,7 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
         <div style={sectionTitle}>🔍 พิมพ์รายละเอียด</div>
         <textarea
           value={parseText}
-          onChange={e => { setParseText(e.target.value); setParseInfo([]); }}
+          onChange={e => { setParseText(e.target.value); setParseInfo([]); setAnalysisItems([]); setParseItems([]); }}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); parseAndApply(); } }}
           placeholder={'เช่น: ไวนิลหลังขาว 60×90 ซม. 3 ผืน\nหรือ: สติ๊กเกอร์พิมพ์ 1×2 เมตร 5 ชิ้น'}
           rows={2}
@@ -581,6 +592,50 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
               }}>
                 {t.startsWith('ไม่พบ') ? '⚠️' : '✓'} {t}
               </span>
+            ))}
+          </div>
+        )}
+
+        {/* ── ผลวิเคราะห์ ──────────────────────────── */}
+        {analysisItems.length > 0 && (
+          <div style={{ marginTop: 10, background: '#eef2ff', borderRadius: 12, padding: '10px 14px', border: '1px solid #c7d2fe' }}>
+            <div style={{ fontSize: 12, color: '#4338ca', fontWeight: 700, marginBottom: 8 }}>
+              🔍 AI วิเคราะห์ได้ {analysisItems.length} รายการ
+            </div>
+            {analysisItems.map((a, i) => (
+              <div key={i} style={{ marginBottom: i < analysisItems.length - 1 ? 8 : 0 }}>
+                {analysisItems.length > 1 && (
+                  <div style={{ fontSize: 11, color: '#6366f1', fontWeight: 700, marginBottom: 4 }}>รายการที่ {i + 1}</div>
+                )}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                  {a.matName ? (
+                    <span style={{ background: '#e0e7ff', color: '#3730a3', borderRadius: 6, padding: '3px 8px', fontSize: 12, fontWeight: 600 }}>
+                      📌 {a.matName}
+                    </span>
+                  ) : a.materialRaw ? (
+                    <span style={{ background: '#fef3c7', color: '#92400e', borderRadius: 6, padding: '3px 8px', fontSize: 12, fontWeight: 600 }}>
+                      ❓ {a.materialRaw}
+                    </span>
+                  ) : (
+                    <span style={{ background: '#fee2e2', color: '#991b1b', borderRadius: 6, padding: '3px 8px', fontSize: 12 }}>ไม่พบวัสดุ</span>
+                  )}
+                  {a.w && a.h && (
+                    <span style={{ background: '#dbeafe', color: '#1e40af', borderRadius: 6, padding: '3px 8px', fontSize: 12, fontWeight: 600 }}>
+                      📐 {a.w}×{a.h}{a.unit ? ' ' + a.unit : ''}
+                    </span>
+                  )}
+                  {a.qty && (
+                    <span style={{ background: '#d1fae5', color: '#065f46', borderRadius: 6, padding: '3px 8px', fontSize: 12, fontWeight: 600 }}>
+                      🔢 {a.qty} ชิ้น
+                    </span>
+                  )}
+                </div>
+                {a.materialRaw && a.matName && a.materialRaw !== a.matName && (
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3, paddingLeft: 2 }}>
+                    AI: "{a.materialRaw}" → จับคู่: {a.matName}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         )}
