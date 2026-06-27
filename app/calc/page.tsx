@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Material = { id: string; name: string; pricePerSqm: number; fixedPrice?: number; quoteOnly?: boolean; minTotal?: number };
@@ -96,6 +97,16 @@ export default function CalcPage() {
   const [copied, setCopied] = useState(false);
   const [parseText, setParseText] = useState('');
   const [parseInfo, setParseInfo] = useState<string[]>([]);
+  const [ownerPin, setOwnerPin] = useState('');
+  const [matUnlocked, setMatUnlocked] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinErr, setPinErr] = useState('');
+
+  useEffect(() => {
+    supabase.from('app_settings').select('value').eq('key', 'owner_pin').single()
+      .then(({ data }) => setOwnerPin(data?.value ?? ''));
+  }, []);
 
   const mat = materials.find(m => m.id === matId) ?? materials[0];
   const wNum = parseFloat(width) || 0;
@@ -283,8 +294,12 @@ export default function CalcPage() {
           </div>
         )}
 
-        <button onClick={() => setShowEditMat(!showEditMat)} style={linkBtn}>
-          {showEditMat ? '▲ ซ่อน' : '✏️ แก้ราคาวัสดุ'}
+        <button onClick={() => {
+          if (showEditMat) { setShowEditMat(false); return; }
+          if (matUnlocked || !ownerPin) { setShowEditMat(true); return; }
+          setPinInput(''); setPinErr(''); setShowPinModal(true);
+        }} style={linkBtn}>
+          {showEditMat ? '▲ ซ่อน' : `✏️ แก้ราคาวัสดุ${ownerPin && !matUnlocked ? ' 🔒' : ''}`}
         </button>
 
         {showEditMat && (
@@ -445,6 +460,50 @@ export default function CalcPage() {
           ))}
         </div>
       </div>
+
+      {/* ── PIN Modal ────────────────────────────────── */}
+      {showPinModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 20,
+        }} onClick={() => setShowPinModal(false)}>
+          <div style={{
+            background: 'white', borderRadius: 20, padding: '28px 24px', width: '100%', maxWidth: 340,
+            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: '#1e293b', marginBottom: 4 }}>🔒 สิทธิ์เจ้าของร้าน</div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 20 }}>ใส่รหัสเจ้าของร้านเพื่อแก้ราคาวัสดุ</div>
+            <input
+              type="password"
+              inputMode="numeric"
+              placeholder="รหัสผ่าน"
+              autoFocus
+              value={pinInput}
+              onChange={e => { setPinInput(e.target.value); setPinErr(''); }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  if (pinInput === ownerPin) {
+                    setMatUnlocked(true); setShowPinModal(false); setShowEditMat(true);
+                  } else { setPinErr('รหัสไม่ถูกต้อง'); }
+                }
+              }}
+              style={{ ...inputStyle, marginBottom: 8, fontSize: 18, letterSpacing: 4, textAlign: 'center' }}
+            />
+            {pinErr && <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 8 }}>{pinErr}</div>}
+            <button onClick={() => {
+              if (pinInput === ownerPin) {
+                setMatUnlocked(true); setShowPinModal(false); setShowEditMat(true);
+              } else { setPinErr('รหัสไม่ถูกต้อง'); }
+            }} style={{
+              width: '100%', padding: '12px', borderRadius: 10, border: 'none',
+              background: '#1d4ed8', color: 'white', fontWeight: 700, fontSize: 15, cursor: 'pointer',
+            }}>ยืนยัน</button>
+            <button onClick={() => setShowPinModal(false)} style={{
+              ...linkBtn, display: 'block', width: '100%', textAlign: 'center', marginTop: 10, color: '#6b7280',
+            }}>ยกเลิก</button>
+          </div>
+        </div>
+      )}
 
     </main>
   );
