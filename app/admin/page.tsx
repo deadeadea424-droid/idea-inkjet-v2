@@ -896,6 +896,7 @@ export default function Home() {
     ['tracking','ติดตามงาน'],  ['orders','งานทั้งหมด'],
     ['unpaid','ค้างชำระ'],     ['customers','ลูกค้า'],
     ['employees','พนักงาน'],   ['analytics','วิเคราะห์'],
+
     ['slips','สลิปโอนเงิน'],
   ];
 
