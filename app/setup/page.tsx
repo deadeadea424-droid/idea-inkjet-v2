@@ -29,14 +29,19 @@ export default function SetupPage() {
   const [copied,       setCopied]       = useState(false);
   const [copiedSchema, setCopiedSchema] = useState(false);
   const [showGuide,    setShowGuide]    = useState(false);
+  const [aiKey,        setAiKey]        = useState('');
+  const [aiKeyStatus,  setAiKeyStatus]  = useState('');
+  const [showAiKey,    setShowAiKey]    = useState(false);
 
   useEffect(() => {
     async function loadPin() {
-      const { data } = await supabase.from('app_settings').select('value').eq('key', 'owner_pin').maybeSingle();
-      const pin = data?.value ?? '';
+      const { data: pinData } = await supabase.from('app_settings').select('value').eq('key', 'owner_pin').maybeSingle();
+      const pin = pinData?.value ?? '';
       setOwnerPin(pin);
-      if (!pin) setUnlocked(true); // no PIN yet → allow first-time setup
+      if (!pin) setUnlocked(true);
       setGateLoading(false);
+      const { data: keyData } = await supabase.from('app_settings').select('value').eq('key', 'anthropic_api_key').maybeSingle();
+      if (keyData?.value) setAiKey(keyData.value);
     }
     loadPin();
   }, []);
@@ -103,6 +108,14 @@ export default function SetupPage() {
     }
     setOwnerPin(pinNew);
     setPinStatus('✅ ตั้งรหัสผ่าน "' + pinNew + '" แล้ว — กลับหน้าหลักได้เลย');
+  }
+
+  async function saveAiKey() {
+    if (!aiKey.trim().startsWith('sk-ant-')) { setAiKeyStatus('❌ API Key ต้องขึ้นต้นด้วย sk-ant-'); return; }
+    setAiKeyStatus('กำลังบันทึก...');
+    const { error } = await supabase.from('app_settings').upsert({ key: 'anthropic_api_key', value: aiKey.trim() });
+    if (error) { setAiKeyStatus('❌ ' + error.message); return; }
+    setAiKeyStatus('✅ บันทึก API Key แล้ว — ระบบ AI พร้อมใช้งาน');
   }
 
   function copySql() {
@@ -286,6 +299,43 @@ export default function SetupPage() {
           <div style={{ marginTop: 10, fontSize: 13, whiteSpace: 'pre-line',
             color: pinStatus.startsWith('✅') ? '#16a34a' : '#dc2626' }}>
             {pinStatus}
+          </div>
+        )}
+      </div>
+
+      {/* ── AI Key ────────────────────────────────────────── */}
+      <div style={card}>
+        <div style={step}>ขั้นตอนที่ 4 (ไม่บังคับ)</div>
+        <div style={cardTitle}>🤖 ตั้งค่า AI (Claude API Key)</div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
+          ใช้สำหรับฟีเจอร์ "ใส่ข้อมูลอัตโนมัติ (AI)" ในหน้าคำนวณราคา
+          ถ้าไม่ใส่ระบบจะใช้การค้นหาแบบคำสำคัญแทน
+        </div>
+        <div style={{ background: '#eff6ff', borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 12, color: '#1d4ed8' }}>
+          <b>วิธีได้ API Key:</b><br />
+          1. เปิด <b>console.anthropic.com</b><br />
+          2. สมัคร/Login → กด <b>API Keys</b> → <b>Create Key</b><br />
+          3. คัดลอก key (ขึ้นต้นด้วย sk-ant-...) มาวางด้านล่าง
+        </div>
+        <div style={{ position: 'relative' }}>
+          <input
+            type={showAiKey ? 'text' : 'password'}
+            placeholder="sk-ant-api03-..."
+            value={aiKey}
+            onChange={e => { setAiKey(e.target.value); setAiKeyStatus(''); }}
+            style={{ ...input, fontFamily: 'monospace', fontSize: 13, paddingRight: 70 }}
+          />
+          <button onClick={() => setShowAiKey(v => !v)} style={{
+            position: 'absolute', right: 10, top: 12,
+            background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#6b7280', fontWeight: 600,
+          }}>
+            {showAiKey ? 'ซ่อน' : 'แสดง'}
+          </button>
+        </div>
+        <button onClick={saveAiKey} style={btnPrimary}>บันทึก API Key</button>
+        {aiKeyStatus && (
+          <div style={{ marginTop: 10, fontSize: 13, color: aiKeyStatus.startsWith('✅') ? '#16a34a' : '#dc2626' }}>
+            {aiKeyStatus}
           </div>
         )}
       </div>

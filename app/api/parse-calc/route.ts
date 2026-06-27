@@ -1,5 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { createClient } from '@supabase/supabase-js';
+
+async function getApiKey(): Promise<string | null> {
+  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anon) return null;
+  try {
+    const sb = createClient(url, anon);
+    const { data } = await sb.from('app_settings').select('value').eq('key', 'anthropic_api_key').maybeSingle();
+    return data?.value ?? null;
+  } catch { return null; }
+}
 
 const MATERIALS_LIST = `
 vinyl_white = ไวนิลหลังขาว
@@ -53,7 +66,7 @@ export async function POST(req: NextRequest) {
     const { text } = await req.json();
     if (!text?.trim()) return NextResponse.json({ error: 'no text' }, { status: 400 });
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = await getApiKey();
     if (!apiKey) return NextResponse.json({ error: 'no api key' }, { status: 500 });
 
     const client = new Anthropic({ apiKey });
