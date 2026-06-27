@@ -9,7 +9,10 @@ const DEFAULT_MATERIALS: Material[] = [
   { id: 'vinyl_white', name: 'ไวนิลหลังขาว 360g', pricePerSqm: 150 },
   { id: 'vinyl_black', name: 'ไวนิลหลังดำ 360g', pricePerSqm: 150 },
   { id: 'fabric_it', name: 'ผ้าไอที', pricePerSqm: 500 },
-  { id: 'acrylic3', name: 'อะคริลิค 3 มม.', pricePerSqm: 400 },
+  { id: 'acrylic3_cut', name: 'อะคริลิค 3 มิล ตัดอย่างเดียว', pricePerSqm: 1000 },
+  { id: 'acrylic3_sticker', name: 'อะคริลิค 3 มิล + สติ๊กเกอร์พิมพ์', pricePerSqm: 1500 },
+  { id: 'acrylic3_diecut', name: 'อะคริลิค 3 มิล + สติ๊กเกอร์ไดคัท', pricePerSqm: 2000 },
+  { id: 'acrylic3_engrave', name: 'อะคริลิค 3 มิล สลัก', pricePerSqm: 3500 },
   { id: 'future3', name: 'ฟิวเจอร์บอร์ด 3 มม.', pricePerSqm: 180 },
   { id: 'future5', name: 'ฟิวเจอร์บอร์ด 5 มม.', pricePerSqm: 220 },
   { id: 'sticker', name: 'สติ๊กเกอร์ทั่วไป', pricePerSqm: 120 },
@@ -29,7 +32,7 @@ const DEFAULT_FINISHING: Finishing[] = [
 
 const fmt = (n: number) => Math.round(n).toLocaleString('th-TH');
 
-const MATERIALS_VER = 'v3';
+const MATERIALS_VER = 'v4';
 
 function useLocalStorage<T>(key: string, init: T, version?: string): [T, (v: T) => void] {
   const [val, setVal] = useState<T>(init);
