@@ -174,8 +174,8 @@ const MAT_KEYWORDS: Record<string, string[]> = {
   acrylic3_engrave: ['อะคริลิค', 'สลัก', 'engrave'],
   future3:          ['ฟิวเจอร์', 'ฟิวเจอร์บอร์ด', '3มม', '3 มม', 'future 3'],
   future5:          ['ฟิวเจอร์', 'ฟิวเจอร์บอร์ด', '5มม', '5 มม', 'future 5'],
-  sticker_future5:  ['สติ๊กเกอร์', 'รีด', 'ฟิวเจอร์', 'รีดฟิวเจอร์', 'สติ๊กเกอร์รีด'],
-  sticker_foam55:   ['สติ๊กเกอร์', 'รีด', 'โฟม', 'โฟมบอร์ด', 'รีดโฟม'],
+  sticker_future5:  ['สติ๊กเกอร์', 'รีด', 'ฟิวเจอร์', 'รีดฟิวเจอร์', 'สติ๊กเกอร์รีด', 'สติ๊กเกอร์ฟิวเจอร์', 'สติ๊กเกอร์ที่ฟิวเจอร์', 'สติ๊กเกอร์รีดฟิวเจอร์บอร์ด'],
+  sticker_foam55:   ['สติ๊กเกอร์', 'รีด', 'โฟม', 'โฟมบอร์ด', 'รีดโฟม', 'สติ๊กเกอร์โฟม', 'สติ๊กเกอร์ที่โฟม'],
   sticker_print:    ['สติ๊กเกอร์', 'พิมพ์', 'สติ๊กเกอร์พิมพ์', 'sticker'],
   sticker_diecut:   ['สติ๊กเกอร์', 'ไดคัท', 'สติ๊กเกอร์ไดคัท', 'diecut'],
   sticker_clear:    ['สติ๊กเกอร์', 'ใส', 'สติ๊กเกอร์ใส', 'clear'],
@@ -246,6 +246,8 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
   const [parseInfo, setParseInfo] = useState<string[]>([]);
   type ParsedItem = { matName: string; isFixed: boolean; isQuote: boolean; dim?: string; sqm: number; qty: number; unitWord: string; pricePerPiece: number; total: number; vinylMin?: string; minTotalApplied?: boolean };
   const [parseItems, setParseItems] = useState<ParsedItem[]>([]);
+  type AnalysisItem = { materialRaw?: string; matName?: string; w?: number; h?: number; unit?: string; qty?: number };
+  const [analysisItems, setAnalysisItems] = useState<AnalysisItem[]>([]);
   const [parseAllCopied, setParseAllCopied] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [ownerPin, setOwnerPin] = useState('');
@@ -313,18 +315,6 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
 
   const cartGrandTotal = cartItems.reduce((s, i) => s + i.total, 0);
 
-  function addAllParsedToCart() {
-    if (parseItems.length === 0) return;
-    let counter = cartCounter;
-    const newItems: CartItem[] = [];
-    for (const item of parseItems) {
-      counter++;
-      newItems.push({ id: counter, matName: item.matName, dim: item.dim, sqm: item.sqm, isFixed: item.isFixed, qty: item.qty, unitWord: item.unitWord, pricePerPiece: item.pricePerPiece, total: item.total });
-    }
-    setCartCounter(counter);
-    setCartItems(prev => [...prev, ...newItems]);
-  }
-
   function copyParsedItems() {
     if (parseItems.length === 0) return;
     const lines: string[] = [];
@@ -385,6 +375,38 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
       if (score > bestScore) { bestScore = score; bestMatId = m.id; }
     }
     return bestScore > 0 ? bestMatId : undefined;
+  }
+
+  // Pre-split a multi-item sentence into individual item segments before sending to AI.
+  // Splits on: (1) conjunctions "และ"/"กับ", (2) [number][unit_word] followed by a known material keyword.
+  function segmentText(text: string): string[] {
+    const conjParts = text.split(/\s*(?:และ|กับ)\s*/);
+    if (conjParts.length > 1) return conjParts.map(p => p.trim()).filter(Boolean);
+
+    const MATERIAL_STARTS = ['ไวนิล','สติ๊กเกอร์','สติกเกอร์','ฟิวเจอร์','ผ้าไอที','ผ้า','อะคริลิค','อะคริลิก','กระดาษ','โรลอัพ','ป้าย'];
+    function startsWithMaterial(s: string): boolean {
+      const w = s.trimStart().toLowerCase();
+      if (/^x\s*stand/i.test(w)) return true;
+      return MATERIAL_STARTS.some(m => w.startsWith(m.toLowerCase()));
+    }
+
+    const UNIT_RE = /\d+\s*(?:ป้าย|ผืน|ชิ้น|แผ่น|อัน|ใบ|รูป|pcs?|pieces?)/gi;
+    const boundaries: number[] = [];
+    let m: RegExpExecArray | null;
+    UNIT_RE.lastIndex = 0;
+    while ((m = UNIT_RE.exec(text)) !== null) {
+      const endPos = m.index + m[0].length;
+      const after = text.slice(endPos);
+      if (startsWithMaterial(after)) boundaries.push(endPos);
+    }
+
+    if (boundaries.length === 0) return [text];
+    const parts: string[] = [];
+    let last = 0;
+    for (const b of boundaries) { const p = text.slice(last, b).trim(); if (p) parts.push(p); last = b; }
+    const rest = text.slice(last).trim();
+    if (rest) parts.push(rest);
+    return parts.length > 1 ? parts : [text];
   }
 
   function kwMatch(text: string): { matId?: string; parsedW: number; parsedH: number; du?: 'cm'|'m'|'in'|'ft'; parsedQ: number } {
@@ -458,12 +480,16 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     setParsing(true);
     setParseInfo([]);
     setParseItems([]);
+    setAnalysisItems([]);
 
-    // ── Try AI first ─────────────────────────────────
-    // AI returns material as free-text Thai description; local scoreMaterial() matches to matId.
+    // Step 1: Pre-split text into item segments locally
+    const segments = segmentText(text);
+
+    // Step 2: Send to AI — single text or numbered list of segments
     let aiItems: { material?: string; width?: string; height?: string; unit?: string; qty?: string }[] = [];
     try {
-      const res = await fetch('/api/parse-calc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      const body = segments.length > 1 ? { segments } : { text };
+      const res = await fetch('/api/parse-calc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) aiItems = data;
@@ -476,50 +502,48 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     // kwMatch unit is used as fallback when AI doesn't return a unit
     const kwFallback = kwMatch(text);
 
+    const analysis: AnalysisItem[] = [];
+
     if (aiItems.length > 0) {
-      // ── AI path: AI understands text → local code matches material + computes price ──
       for (const ai of aiItems) {
         const parsedW = ai.width ? parseFloat(ai.width) : 0;
         const parsedH = ai.height ? parseFloat(ai.height) : 0;
         const aiUnit = ai.unit && ['cm','m','in','ft'].includes(ai.unit) ? ai.unit as 'cm'|'m'|'in'|'ft' : undefined;
-        // When AI doesn't return a unit, fall back to local regex detection rather than
-        // blindly defaulting to 'cm', which would miscompute meter-scale dimensions.
         const du = aiUnit ?? kwFallback.du;
         const parsedQ = ai.qty ? Math.max(1, parseInt(ai.qty) || 1) : 1;
-        // Match AI's free-text material description against local materials list
-        const matId = ai.material ? scoreMaterial(ai.material) : undefined;
-        const computed = calcItemPrice(matId, parsedW, parsedH, du, parsedQ);
+        const mId = ai.material ? scoreMaterial(ai.material) : undefined;
+        const matchedMat = mId ? materials.find(m => m.id === mId) : undefined;
+        analysis.push({ materialRaw: ai.material ?? undefined, matName: matchedMat?.name, w: parsedW || undefined, h: parsedH || undefined, unit: du, qty: parsedQ });
+        const computed = calcItemPrice(mId, parsedW, parsedH, du, parsedQ);
         if (computed) results.push({ ...computed, isQuote: false });
       }
-      // Fill manual form from first item for convenience
-      const first = aiItems[0];
-      const firstMatId = first.material ? scoreMaterial(first.material) : undefined;
-      const firstMat = firstMatId ? materials.find(m => m.id === firstMatId) : null;
-      if (firstMat) setMatId(firstMat.id);
-      if (first.width) setWidth(first.width);
-      if (first.height) setHeight(first.height);
-      const firstDu = (first.unit && ['cm','m','in','ft'].includes(first.unit) ? first.unit as 'cm'|'m'|'in'|'ft' : undefined) ?? kwFallback.du;
-      if (firstDu) setUnit(firstDu);
-      if (first.qty) setQty(first.qty);
       if (results.length === 0) setParseInfo(['ไม่พบข้อมูล — ลองพิมพ์ชื่อวัสดุ ขนาด หรือจำนวน']);
     } else {
-      // ── Fallback: keyword matching ────────────────
+      // Fallback: keyword matching on full text
       const kw = kwMatch(text);
-      const parsedMat = kw.matId ? materials.find(m => m.id === kw.matId) ?? null : null;
-      const info: string[] = [];
-      if (parsedMat) { setMatId(parsedMat.id); info.push(`วัสดุ: ${parsedMat.name}`); }
-      if (kw.parsedW > 0 && kw.parsedH > 0) {
-        setWidth(String(kw.parsedW)); setHeight(String(kw.parsedH));
-        if (kw.du) setUnit(kw.du);
-        info.push(`ขนาด: ${kw.parsedW}×${kw.parsedH}${kw.du ? ' ' + kw.du : ''}`);
-      }
-      if (kw.parsedQ > 1) { setQty(String(kw.parsedQ)); info.push(`จำนวน: ${kw.parsedQ}`); }
+      const matchedMat = kw.matId ? materials.find(m => m.id === kw.matId) : undefined;
+      analysis.push({ matName: matchedMat?.name, w: kw.parsedW || undefined, h: kw.parsedH || undefined, unit: kw.du, qty: kw.parsedQ });
       const computed = calcItemPrice(kw.matId, kw.parsedW, kw.parsedH, kw.du, kw.parsedQ);
       if (computed) results.push({ ...computed, isQuote: false });
-      setParseInfo(info.length > 0 ? info : ['ไม่พบข้อมูล — ลองพิมพ์ชื่อวัสดุ ขนาด หรือจำนวน']);
+      if (results.length === 0) setParseInfo(['ไม่พบข้อมูล — ลองพิมพ์ชื่อวัสดุ ขนาด หรือจำนวน']);
     }
 
+    setAnalysisItems(analysis);
+
     setParseItems(results);
+
+    // Auto-add all parsed items to cart immediately
+    if (results.length > 0) {
+      const startId = cartCounter;
+      const newCartItems: CartItem[] = results.map((item, i) => ({
+        id: startId + i + 1,
+        matName: item.matName, dim: item.dim, sqm: item.sqm,
+        isFixed: item.isFixed, qty: item.qty, unitWord: item.unitWord,
+        pricePerPiece: item.pricePerPiece, total: item.total,
+      }));
+      setCartCounter(startId + results.length);
+      setCartItems(prev => [...prev, ...newCartItems]);
+    }
   }
 
   return (
@@ -545,7 +569,7 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
         <div style={sectionTitle}>🔍 พิมพ์รายละเอียด</div>
         <textarea
           value={parseText}
-          onChange={e => { setParseText(e.target.value); setParseInfo([]); }}
+          onChange={e => { setParseText(e.target.value); setParseInfo([]); setAnalysisItems([]); setParseItems([]); }}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); parseAndApply(); } }}
           placeholder={'เช่น: ไวนิลหลังขาว 60×90 ซม. 3 ผืน\nหรือ: สติ๊กเกอร์พิมพ์ 1×2 เมตร 5 ชิ้น'}
           rows={2}
@@ -568,6 +592,50 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
               }}>
                 {t.startsWith('ไม่พบ') ? '⚠️' : '✓'} {t}
               </span>
+            ))}
+          </div>
+        )}
+
+        {/* ── ผลวิเคราะห์ ──────────────────────────── */}
+        {analysisItems.length > 0 && (
+          <div style={{ marginTop: 10, background: '#eef2ff', borderRadius: 12, padding: '10px 14px', border: '1px solid #c7d2fe' }}>
+            <div style={{ fontSize: 12, color: '#4338ca', fontWeight: 700, marginBottom: 8 }}>
+              🔍 AI วิเคราะห์ได้ {analysisItems.length} รายการ
+            </div>
+            {analysisItems.map((a, i) => (
+              <div key={i} style={{ marginBottom: i < analysisItems.length - 1 ? 8 : 0 }}>
+                {analysisItems.length > 1 && (
+                  <div style={{ fontSize: 11, color: '#6366f1', fontWeight: 700, marginBottom: 4 }}>รายการที่ {i + 1}</div>
+                )}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                  {a.matName ? (
+                    <span style={{ background: '#e0e7ff', color: '#3730a3', borderRadius: 6, padding: '3px 8px', fontSize: 12, fontWeight: 600 }}>
+                      📌 {a.matName}
+                    </span>
+                  ) : a.materialRaw ? (
+                    <span style={{ background: '#fef3c7', color: '#92400e', borderRadius: 6, padding: '3px 8px', fontSize: 12, fontWeight: 600 }}>
+                      ❓ {a.materialRaw}
+                    </span>
+                  ) : (
+                    <span style={{ background: '#fee2e2', color: '#991b1b', borderRadius: 6, padding: '3px 8px', fontSize: 12 }}>ไม่พบวัสดุ</span>
+                  )}
+                  {a.w && a.h && (
+                    <span style={{ background: '#dbeafe', color: '#1e40af', borderRadius: 6, padding: '3px 8px', fontSize: 12, fontWeight: 600 }}>
+                      📐 {a.w}×{a.h}{a.unit ? ' ' + a.unit : ''}
+                    </span>
+                  )}
+                  {a.qty && (
+                    <span style={{ background: '#d1fae5', color: '#065f46', borderRadius: 6, padding: '3px 8px', fontSize: 12, fontWeight: 600 }}>
+                      🔢 {a.qty} ชิ้น
+                    </span>
+                  )}
+                </div>
+                {a.materialRaw && a.matName && a.materialRaw !== a.matName && (
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3, paddingLeft: 2 }}>
+                    AI: "{a.materialRaw}" → จับคู่: {a.matName}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         )}
@@ -638,17 +706,16 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
                 <span style={{ fontSize: 22, fontWeight: 900, color: '#f1f5f9' }}>{fmt(parseItems.reduce((s, i) => s + i.total, 0))} บาท</span>
               </div>
             )}
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#14532d', borderRadius: 8 }}>
+              <span style={{ fontSize: 14, color: '#86efac', fontWeight: 700, flex: 1 }}>
+                ✅ เพิ่ม{parseItems.length > 1 ? `ทั้ง ${parseItems.length} รายการ` : ''}ในตะกร้าแล้ว
+              </span>
+            </div>
             <button onClick={copyParsedItems} style={{
-              marginTop: 10, width: '100%', padding: '10px', borderRadius: 8, border: 'none',
+              marginTop: 6, width: '100%', padding: '10px', borderRadius: 8, border: 'none',
               cursor: 'pointer', background: parseAllCopied ? '#16a34a' : '#3b82f6', color: 'white', fontWeight: 700, fontSize: 14,
             }}>
               {parseAllCopied ? '✅ คัดลอกแล้ว!' : '📋 คัดลอกผลลัพธ์'}
-            </button>
-            <button onClick={addAllParsedToCart} style={{
-              marginTop: 6, width: '100%', padding: '10px', borderRadius: 8, border: 'none',
-              cursor: 'pointer', background: '#15803d', color: 'white', fontWeight: 700, fontSize: 14,
-            }}>
-              ➕ เพิ่ม{parseItems.length > 1 ? `ทั้ง ${parseItems.length} รายการ` : ''}ในรายการ
             </button>
           </div>
         )}
