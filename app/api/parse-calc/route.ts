@@ -48,47 +48,57 @@ const SYSTEM_PROMPT = `คุณเป็นตัวช่วยวิเคร
 วัสดุที่มีในระบบ (รหัส = ชื่อ):
 ${MATERIALS_LIST}
 
-เมื่อได้รับข้อความ ให้วิเคราะห์และส่งคืนเฉพาะ JSON ดังนี้ ไม่มีข้อความอื่น:
-{
-  "matId": "รหัสวัสดุที่ตรงที่สุด หรือ null ถ้าไม่รู้",
-  "width": "ตัวเลขความกว้างเป็นตัวเลขล้วน หรือ null",
-  "height": "ตัวเลขความสูง/ยาวเป็นตัวเลขล้วน หรือ null",
-  "unit": "หน่วย: cm, m, in, หรือ ft หรือ null (ซม./เซนติเมตร=cm, ม./เมตร=m, นิ้ว=in, ฟุต=ft)",
-  "qty": "จำนวนเป็นตัวเลขล้วน หรือ null"
-}
+เมื่อได้รับข้อความ ให้วิเคราะห์และส่งคืนเฉพาะ JSON array ของทุกรายการที่พบ ไม่มีข้อความอื่น:
+[
+  {
+    "matId": "รหัสวัสดุที่ตรงที่สุด หรือ null",
+    "width": "ตัวเลขความกว้างเป็นตัวเลขล้วน หรือ null",
+    "height": "ตัวเลขความสูง/ยาวเป็นตัวเลขล้วน หรือ null",
+    "unit": "cm, m, in, หรือ ft หรือ null",
+    "qty": "จำนวนเป็นตัวเลขล้วน หรือ null"
+  }
+]
 
 กฎ:
-- ถ้าไม่แน่ใจ ให้ใส่ null ดีกว่าเดา
-- ส่งคืน JSON เท่านั้น ห้ามมีข้อความอื่น
-- "1 เมตรคูณ 2 เมตร" → width=1, height=2, unit=m
-- "50×90 ซม." หรือ "50×90 เซนติเมตร" → width=50, height=90, unit=cm
-- "1.20 * 80 เซนติเมตร" หรือ "1.2×80 ซม." → width=1.2, height=80, unit=cm
-- ถ้าข้อความมีหลายรายการ ให้เลือกรายการแรกที่พบ
+- ถ้ามีหลายรายการในข้อความ ให้ระบุทุกรายการในอาร์เรย์
+- ถ้ามีรายการเดียว ให้ส่งอาร์เรย์ 1 element
+- ถ้าไม่แน่ใจ ใส่ null ดีกว่าเดา
 - width และ height ต้องเป็นตัวเลขล้วน ไม่มีหน่วย
-- "เซนติเมตร" = cm, "เมตร" (ไม่มี "เซนติ") = m`;
+- "เซนติเมตร" หรือ "ซม" = cm, "เมตร" (ไม่มีคำว่าเซนติ) = m
+- "1 เมตรคูณ 2 เมตร" → width="1", height="2", unit="m"
+- "1.2×80 ซม." หรือ "1.2×80 เซนติเมตร" → width="1.2", height="80", unit="cm"
+- ตัวอย่าง input: "ไวนิล 1×2 ม. 3 ผืน และสติ๊กเกอร์พิมพ์ 60×90 ซม. 5 ชิ้น"
+- ตัวอย่าง output: [{"matId":"vinyl_white","width":"1","height":"2","unit":"m","qty":"3"},{"matId":"sticker_print","width":"60","height":"90","unit":"cm","qty":"5"}]`;
 
 export async function POST(req: NextRequest) {
   try {
     const { text } = await req.json();
-    if (!text?.trim()) return NextResponse.json({ error: 'no text' }, { status: 400 });
+    if (!text?.trim()) return NextResponse.json([], { status: 400 });
 
     const apiKey = await getApiKey();
-    if (!apiKey) return NextResponse.json({ error: 'no api key' }, { status: 500 });
+    if (!apiKey) return NextResponse.json([], { status: 500 });
 
     const client = new Anthropic({ apiKey });
     const msg = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 256,
+      max_tokens: 512,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: text }],
     });
 
     const raw = (msg.content[0] as { type: string; text: string }).text.trim();
-    const jsonStart = raw.indexOf('{');
-    const jsonEnd = raw.lastIndexOf('}');
-    const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
-    return NextResponse.json(parsed);
+    // Support both array [...] and object {...} responses
+    const arrStart = raw.indexOf('[');
+    const objStart = raw.indexOf('{');
+    let parsed: unknown;
+    if (arrStart !== -1 && (objStart === -1 || arrStart < objStart)) {
+      parsed = JSON.parse(raw.slice(arrStart, raw.lastIndexOf(']') + 1));
+    } else {
+      parsed = JSON.parse(raw.slice(objStart, raw.lastIndexOf('}') + 1));
+    }
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    return NextResponse.json(items);
   } catch {
-    return NextResponse.json({ error: 'parse failed' }, { status: 500 });
+    return NextResponse.json([]);
   }
 }
