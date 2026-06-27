@@ -148,6 +148,12 @@ export default function ScanPage() {
       balance: d.paid ? 0 : (d.price ?? 0),
       status,
       detail: detailParts.join('\n'),
+      delivery_method: 'รับเองที่ร้าน',
+      payment_type: 'เงินสด',
+      file_status: 'ไม่มีไฟล์',
+      finishing: '',
+      credit_days: 0,
+      order_code: `SCAN-${Date.now()}`,
     };
     if (customerId) payload.customer_id = customerId;
     if (d.work_date) payload.due_date = parseThaiDate(d.work_date);
