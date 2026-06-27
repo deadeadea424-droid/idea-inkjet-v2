@@ -217,7 +217,9 @@ export default function Home() {
   const [editEmp,      setEditEmp]      = useState<Employee | null>(null);
   const [editEmpForm,  setEditEmpForm]  = useState({ name:'', position:'', role:'graphic', pin:'' });
 
-  const [assessments,  setAssessments]  = useState<any[]>([]);
+  const [assessments,   setAssessments]   = useState<any[]>([]);
+  const [paymentSlips,  setPaymentSlips]  = useState<any[]>([]);
+  const [slipViewing,   setSlipViewing]   = useState<number | null>(null);
 
   // ── Load ────────────────────────────────────────────────────────────────────
   async function load() {
@@ -321,6 +323,10 @@ export default function Home() {
     setCustomers(custNorm); setEmployees(empNorm); setOrders(ordNorm);
     setLastRefresh(new Date());
 
+    // Load pending payment slips for badge count
+    supabase.from('payment_slips').select('id, status').eq('status', 'pending')
+      .then(({ data }) => { if (data) setPaymentSlips(data); });
+
     // Browser notifications for overdue + today
     if (typeof window !== 'undefined' && Notification.permission === 'granted') {
       const t = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' });
@@ -365,9 +371,23 @@ export default function Home() {
     setAssessments(data || []);
   }
 
+  async function loadPaymentSlips() {
+    const { data } = await supabase
+      .from('payment_slips')
+      .select('*, orders(id, order_code, title, customers(name))')
+      .order('created_at', { ascending: false });
+    setPaymentSlips(data || []);
+  }
+
   useEffect(() => {
     if (tab === 'assessments') loadAssessments();
+    if (tab === 'slips') loadPaymentSlips();
   }, [tab]);
+
+  async function markSlipReviewed(id: number) {
+    await supabase.from('payment_slips').update({ status: 'reviewed' }).eq('id', id);
+    setPaymentSlips(prev => prev.map(s => s.id === id ? { ...s, status: 'reviewed' } : s));
+  }
 
   function doLogin(r: 'owner' | 'employee' | 'viewer', empId?: number, edit?: boolean) {
     setRole(r); setEditMode(!!edit);
@@ -857,7 +877,7 @@ export default function Home() {
     ['tracking','ติดตามงาน'],  ['orders','งานทั้งหมด'],
     ['unpaid','ค้างชำระ'],     ['customers','ลูกค้า'],
     ['employees','พนักงาน'],   ['analytics','วิเคราะห์'],
-    ['assessments','ประเมินพนักงาน'],
+    ['assessments','ประเมินพนักงาน'], ['slips','สลิปโอนเงิน'],
   ];
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -943,6 +963,7 @@ export default function Home() {
             {t[0] === 'tracking' && (stats.overdue + stats.today) > 0 && <span className="badge">{stats.overdue + stats.today}</span>}
             {t[0] === 'orders'   && stats.overdue > 0 && <span className="badge">{stats.overdue}</span>}
             {t[0] === 'unpaid'   && unpaidByCustomer.length > 0 && <span className="badge">{unpaidByCustomer.length}</span>}
+            {t[0] === 'slips'    && paymentSlips.filter(s => s.status === 'pending').length > 0 && <span className="badge">{paymentSlips.filter(s => s.status === 'pending').length}</span>}
           </button>
         ))}
       </div>
@@ -1151,6 +1172,45 @@ export default function Home() {
                                 : <LogTimeline logs={orderLogs} loading={logsLoading} logsFor={logsFor} orderId={o.id} tableReady={logsTableReady} />
                               }
                             </div>
+                            {/* Payment slips for this order */}
+                            {(() => {
+                              const orderSlips = paymentSlips.filter((s: any) => s.order_id === o.id);
+                              if (!orderSlips.length) return null;
+                              return (
+                                <div style={{ marginTop:10, borderTop:'1px solid #e5e7eb', paddingTop:10 }}>
+                                  <div style={{ fontWeight:700, fontSize:13, color:'#0369a1', marginBottom:8 }}>📎 สลิปโอนเงินจากลูกค้า ({orderSlips.length})</div>
+                                  <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                                    {orderSlips.map((s: any) => (
+                                      <div key={s.id} style={{ background: s.status === 'pending' ? '#eff6ff' : '#f0fdf4', border:`1px solid ${s.status === 'pending' ? '#bfdbfe' : '#bbf7d0'}`, borderRadius:10, padding:'10px 12px' }}>
+                                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                                          <div>
+                                            <b style={{ color:'#1e293b' }}>{Number(s.amount).toLocaleString('th-TH')} บาท</b>
+                                            {s.transferred_at && <span style={{ fontSize:12, color:'#6b7280', marginLeft:8 }}>{new Date(s.transferred_at).toLocaleString('th-TH', { timeZone:'Asia/Bangkok', dateStyle:'short', timeStyle:'short' })}</span>}
+                                          </div>
+                                          <span style={{ fontSize:11, padding:'2px 8px', borderRadius:12, background: s.status === 'pending' ? '#dbeafe' : '#d1fae5', color: s.status === 'pending' ? '#1d4ed8' : '#15803d', fontWeight:600 }}>
+                                            {s.status === 'pending' ? 'รอตรวจสอบ' : 'ตรวจสอบแล้ว'}
+                                          </span>
+                                        </div>
+                                        {s.reference_no && <div style={{ fontSize:12, color:'#374151' }}>เลขอ้างอิง: {s.reference_no}</div>}
+                                        {s.note && <div style={{ fontSize:12, color:'#374151' }}>หมายเหตุ: {s.note}</div>}
+                                        {s.slip_url && (
+                                          <div style={{ marginTop:8, display:'flex', gap:8, alignItems:'center' }}>
+                                            <img src={s.slip_url} alt="สลิป" onClick={() => setSlipViewing(s.id)}
+                                              style={{ width:80, height:80, objectFit:'cover', borderRadius:8, border:'1px solid #e5e7eb', cursor:'pointer' }} />
+                                            <a href={s.slip_url} target="_blank" rel="noreferrer" style={{ fontSize:12, color:'#1d4ed8' }}>เปิดเต็มจอ ↗</a>
+                                          </div>
+                                        )}
+                                        {s.status === 'pending' && (
+                                          <button className="btnSm btnGreen" style={{ marginTop:8 }} onClick={() => markSlipReviewed(s.id)}>
+                                            ✓ ยืนยันรับเงินแล้ว
+                                          </button>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </td>
                         </tr>
                       )}
@@ -1457,6 +1517,87 @@ export default function Home() {
                     <div style={{ marginTop:8, fontSize:11, color:'var(--muted)' }}>
                       ประเมินเมื่อ: {new Date(a.created_at).toLocaleString('th-TH', { timeZone:'Asia/Bangkok', year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}
                     </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })()}
+
+      {/* ═══ PAYMENT SLIPS ═══════════════════════════════════════════════════ */}
+      {tab === 'slips' && (() => {
+        const pending  = paymentSlips.filter(s => s.status === 'pending');
+        const reviewed = paymentSlips.filter(s => s.status === 'reviewed');
+        return (
+          <section>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:16 }}>
+              <div className="card" style={{ textAlign:'center', padding:'14px 10px' }}>
+                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>สลิปทั้งหมด</div>
+                <div style={{ fontSize:24, fontWeight:800, color:'#1d4ed8' }}>{paymentSlips.length}</div>
+              </div>
+              <div className="card" style={{ textAlign:'center', padding:'14px 10px' }}>
+                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>รอตรวจสอบ</div>
+                <div style={{ fontSize:24, fontWeight:800, color: pending.length > 0 ? '#dc2626' : '#6b7280' }}>{pending.length}</div>
+              </div>
+              <div className="card" style={{ textAlign:'center', padding:'14px 10px' }}>
+                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>ตรวจสอบแล้ว</div>
+                <div style={{ fontSize:24, fontWeight:800, color:'#16a34a' }}>{reviewed.length}</div>
+              </div>
+            </div>
+
+            {paymentSlips.length === 0 ? (
+              <div className="card" style={{ textAlign:'center', padding:48, color:'var(--muted)' }}>
+                <div style={{ fontSize:40, marginBottom:12 }}>📎</div>
+                <div style={{ fontWeight:600 }}>ยังไม่มีสลิปโอนเงิน</div>
+                <div style={{ fontSize:13, marginTop:4 }}>ลูกค้าจะส่งสลิปผ่านหน้าติดตามงาน</div>
+              </div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                {paymentSlips.map((s: any) => (
+                  <div key={s.id} className="card" style={{ borderLeft:`4px solid ${s.status === 'pending' ? '#3b82f6' : '#16a34a'}` }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:8, marginBottom:10 }}>
+                      <div>
+                        {s.orders?.order_code && <div style={{ fontSize:12, color:'var(--muted)' }}>{s.orders.order_code}</div>}
+                        <div style={{ fontWeight:700, fontSize:15 }}>{s.orders?.title ?? `งาน #${s.order_id}`}</div>
+                        {s.orders?.customers?.name && <div style={{ fontSize:13, color:'var(--muted)' }}>ลูกค้า: {s.orders.customers.name}</div>}
+                      </div>
+                      <span style={{ fontSize:11, padding:'3px 10px', borderRadius:20, background: s.status === 'pending' ? '#dbeafe' : '#d1fae5', color: s.status === 'pending' ? '#1d4ed8' : '#15803d', fontWeight:700 }}>
+                        {s.status === 'pending' ? '⏳ รอตรวจสอบ' : '✅ ตรวจสอบแล้ว'}
+                      </span>
+                    </div>
+
+                    <div style={{ display:'flex', gap:16, flexWrap:'wrap', alignItems:'flex-start' }}>
+                      <div style={{ flex: 1, minWidth: 180 }}>
+                        <div style={{ fontSize:22, fontWeight:800, color:'#16a34a' }}>{Number(s.amount).toLocaleString('th-TH')} บาท</div>
+                        {s.transferred_at && (
+                          <div style={{ fontSize:13, color:'#374151', marginTop:4 }}>
+                            โอนเมื่อ: {new Date(s.transferred_at).toLocaleString('th-TH', { timeZone:'Asia/Bangkok', dateStyle:'medium', timeStyle:'short' })}
+                          </div>
+                        )}
+                        {s.reference_no && <div style={{ fontSize:13, color:'#374151', marginTop:2 }}>เลขอ้างอิง: <b>{s.reference_no}</b></div>}
+                        {s.note && <div style={{ fontSize:13, color:'#374151', marginTop:2 }}>หมายเหตุ: {s.note}</div>}
+                        <div style={{ fontSize:11, color:'var(--muted)', marginTop:6 }}>
+                          แจ้งเมื่อ: {new Date(s.created_at).toLocaleString('th-TH', { timeZone:'Asia/Bangkok', dateStyle:'short', timeStyle:'short' })}
+                        </div>
+                      </div>
+
+                      {s.slip_url && (
+                        <div>
+                          <img src={s.slip_url} alt="สลิป"
+                            onClick={() => window.open(s.slip_url, '_blank')}
+                            style={{ width:100, height:130, objectFit:'cover', borderRadius:10, border:'1px solid #e5e7eb', cursor:'pointer', display:'block' }} />
+                          <a href={s.slip_url} target="_blank" rel="noreferrer"
+                            style={{ fontSize:11, color:'#1d4ed8', display:'block', textAlign:'center', marginTop:4 }}>เปิดเต็มจอ ↗</a>
+                        </div>
+                      )}
+                    </div>
+
+                    {s.status === 'pending' && (
+                      <button className="btnSm btnGreen" style={{ marginTop:12 }} onClick={() => markSlipReviewed(s.id)}>
+                        ✓ ยืนยันรับเงินแล้ว
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

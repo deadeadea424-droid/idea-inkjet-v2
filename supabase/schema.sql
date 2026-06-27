@@ -74,6 +74,19 @@ CREATE TABLE payments (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE payment_slips (
+  id             BIGSERIAL PRIMARY KEY,
+  order_id       BIGINT REFERENCES orders(id) ON DELETE CASCADE,
+  customer_id    BIGINT REFERENCES customers(id),
+  amount         NUMERIC NOT NULL,
+  transferred_at TIMESTAMPTZ,
+  reference_no   TEXT,
+  slip_url       TEXT,
+  note           TEXT,
+  status         TEXT DEFAULT 'pending',
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE assessments (
   id                  BIGSERIAL PRIMARY KEY,
   order_id            BIGINT REFERENCES orders(id) ON DELETE CASCADE,
@@ -104,5 +117,7 @@ CREATE POLICY "Allow all" ON employees FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all" ON orders FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all" ON order_status_logs FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all" ON payments FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE payment_slips ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all" ON payment_slips FOR ALL USING (true) WITH CHECK (true);
 ALTER TABLE assessments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all" ON assessments FOR ALL USING (true) WITH CHECK (true);

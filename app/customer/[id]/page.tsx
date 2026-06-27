@@ -27,6 +27,114 @@ function CopyBtn({ text }: { text: string }) {
   );
 }
 
+function SlipForm({ orderId, balance, customerId, onDone }: { orderId: number; balance: number; customerId: number; onDone: () => void }) {
+  const [amount,        setAmount]        = useState(String(balance));
+  const [transferredAt, setTransferredAt] = useState('');
+  const [referenceNo,   setReferenceNo]   = useState('');
+  const [note,          setNote]          = useState('');
+  const [file,          setFile]          = useState<File | null>(null);
+  const [preview,       setPreview]       = useState('');
+  const [saving,        setSaving]        = useState(false);
+  const [errMsg,        setErrMsg]        = useState('');
+  const [done,          setDone]          = useState(false);
+
+  function pickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFile(f);
+    setPreview(URL.createObjectURL(f));
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!amount || Number(amount) <= 0) { setErrMsg('กรุณาระบุยอดที่โอน'); return; }
+    setErrMsg(''); setSaving(true);
+
+    let slipUrl: string | null = null;
+
+    if (file) {
+      const ext  = file.name.split('.').pop() || 'jpg';
+      const path = `${orderId}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('payment-slips').upload(path, file, { upsert: true });
+      if (upErr) {
+        setSaving(false);
+        setErrMsg('อัปโหลดสลิปไม่สำเร็จ: ' + upErr.message);
+        return;
+      }
+      const { data: urlData } = supabase.storage.from('payment-slips').getPublicUrl(path);
+      slipUrl = urlData.publicUrl;
+    }
+
+    const { error } = await supabase.from('payment_slips').insert({
+      order_id:       orderId,
+      customer_id:    customerId,
+      amount:         Number(amount),
+      transferred_at: transferredAt ? new Date(transferredAt).toISOString() : null,
+      reference_no:   referenceNo.trim() || null,
+      slip_url:       slipUrl,
+      note:           note.trim() || null,
+      status:         'pending',
+    });
+
+    setSaving(false);
+    if (error) { setErrMsg('เกิดข้อผิดพลาด: ' + error.message); return; }
+    setDone(true);
+    setTimeout(onDone, 2000);
+  }
+
+  if (done) return (
+    <div style={{ textAlign: 'center', padding: '16px 0', color: '#15803d' }}>
+      <div style={{ fontSize: 28, marginBottom: 6 }}>✅</div>
+      <div style={{ fontWeight: 700 }}>แจ้งโอนเรียบร้อยแล้ว!</div>
+      <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>ทางร้านจะตรวจสอบและยืนยันให้ค่ะ</div>
+    </div>
+  );
+
+  return (
+    <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div>
+        <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>ยอดที่โอน (บาท) *</label>
+        <input type="number" min="1" step="0.01" required value={amount} onChange={e => setAmount(e.target.value)}
+          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 15, fontWeight: 700, boxSizing: 'border-box' }} />
+      </div>
+      <div>
+        <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>วันเวลาที่โอน</label>
+        <input type="datetime-local" value={transferredAt} onChange={e => setTransferredAt(e.target.value)}
+          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, boxSizing: 'border-box' }} />
+      </div>
+      <div>
+        <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>เลขอ้างอิง / เลขที่รายการ (ถ้ามี)</label>
+        <input type="text" placeholder="เช่น 2706123456789" value={referenceNo} onChange={e => setReferenceNo(e.target.value)}
+          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, boxSizing: 'border-box' }} />
+      </div>
+      <div>
+        <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>แนบสลิปการโอน</label>
+        <input type="file" accept="image/*" onChange={pickFile}
+          style={{ width: '100%', fontSize: 13 }} />
+        {preview && (
+          <div style={{ marginTop: 8, textAlign: 'center' }}>
+            <img src={preview} alt="ตัวอย่างสลิป" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, border: '1px solid #e5e7eb', objectFit: 'contain' }} />
+          </div>
+        )}
+      </div>
+      <div>
+        <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>หมายเหตุเพิ่มเติม (ถ้ามี)</label>
+        <input type="text" placeholder="เช่น โอนเพิ่ม, ชำระบางส่วน..." value={note} onChange={e => setNote(e.target.value)}
+          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, boxSizing: 'border-box' }} />
+      </div>
+      {errMsg && (
+        <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 8, padding: '8px 12px', color: '#dc2626', fontSize: 13 }}>{errMsg}</div>
+      )}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button type="submit" disabled={saving}
+          style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: 'none', background: saving ? '#93c5fd' : '#1d4ed8', color: 'white', fontSize: 14, fontWeight: 700, cursor: saving ? 'default' : 'pointer' }}>
+          {saving ? 'กำลังส่ง...' : 'ส่งหลักฐานการโอน'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function PaymentInfo() {
   return (
     <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: '14px 16px' }}>
@@ -62,6 +170,7 @@ export default function CustomerPage() {
   const [loading,   setLoading]   = useState(true);
   const [notFound,  setNotFound]  = useState(false);
   const [expanded,  setExpanded]  = useState<number | null>(null);
+  const [slipOpen,  setSlipOpen]  = useState<number | null>(null);
 
   useEffect(() => {
     if (!customerId) return;
@@ -201,8 +310,25 @@ export default function CustomerPage() {
                     )}
                   </div>
                   {Number(o.balance) > 0 && (
-                    <div style={{ marginTop: 12 }}>
+                    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
                       <PaymentInfo />
+                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: '12px 14px' }}>
+                        {slipOpen === o.id ? (
+                          <>
+                            <div style={{ fontWeight: 700, fontSize: 13, color: '#15803d', marginBottom: 10 }}>📎 แจ้งหลักฐานการโอนเงิน</div>
+                            <SlipForm orderId={o.id} balance={Number(o.balance)} customerId={customerId} onDone={() => setSlipOpen(null)} />
+                            <button onClick={() => setSlipOpen(null)}
+                              style={{ marginTop: 8, fontSize: 12, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                              ✕ ยกเลิก
+                            </button>
+                          </>
+                        ) : (
+                          <button onClick={() => setSlipOpen(o.id)}
+                            style={{ width: '100%', padding: '10px 0', borderRadius: 10, border: 'none', background: '#16a34a', color: 'white', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                            📎 แจ้งโอนเงิน / ส่งสลิป
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
                   {o.detail && (
