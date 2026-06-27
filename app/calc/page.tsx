@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Material = { id: string; name: string; pricePerSqm: number; fixedPrice?: number };
+type Material = { id: string; name: string; pricePerSqm: number; fixedPrice?: number; quoteOnly?: boolean };
 type Finishing = { id: string; name: string; unit: 'sqm' | 'perimeter' | 'piece' | 'fixed'; price: number; enabled: boolean; qty?: number };
 
 const DEFAULT_MATERIALS: Material[] = [
@@ -26,6 +26,10 @@ const DEFAULT_MATERIALS: Material[] = [
   { id: 'xstand_p60', name: 'X Stand กระดาษก๊อซซี่ PP 60×160 ซม.', pricePerSqm: 0, fixedPrice: 800 },
   { id: 'xstand_p80', name: 'X Stand กระดาษก๊อซซี่ PP 80×180 ซม.', pricePerSqm: 0, fixedPrice: 1000 },
   { id: 'rollup_p80', name: 'โรลอัพ กระดาษก๊อซซี่ PP 80×200 ซม.', pricePerSqm: 0, fixedPrice: 1500 },
+  { id: 'letter_plastic', name: 'อักษรพลาสวูด', pricePerSqm: 0, quoteOnly: true },
+  { id: 'letter_stainless', name: 'อักษรสแตนเลส', pricePerSqm: 0, quoteOnly: true },
+  { id: 'letter_alu', name: 'อักษรอลูมิเนียม', pricePerSqm: 0, quoteOnly: true },
+  { id: 'letter_acrylic', name: 'อักษรอะคริลิค', pricePerSqm: 0, quoteOnly: true },
 ];
 
 const DEFAULT_FINISHING: Finishing[] = [
@@ -40,7 +44,7 @@ const DEFAULT_FINISHING: Finishing[] = [
 
 const fmt = (n: number) => Math.round(n).toLocaleString('th-TH');
 
-const MATERIALS_VER = 'v6';
+const MATERIALS_VER = 'v7';
 
 function useLocalStorage<T>(key: string, init: T, version?: string): [T, (v: T) => void] {
   const [val, setVal] = useState<T>(init);
@@ -97,6 +101,7 @@ export default function CalcPage() {
   }
 
   const isFixed = mat.fixedPrice !== undefined;
+  const isQuote = !!mat.quoteOnly;
   const fixedVal = parseFloat(fixedPrices[mat.id] ?? '') || mat.fixedPrice || 0;
   const basePricePerPiece = isFixed ? fixedVal : mat.pricePerSqm * sqm;
   const finishingTotalPerPiece = finishing.reduce((s, f) => s + calcFinishingCost(f), 0);
@@ -144,8 +149,8 @@ export default function CalcPage() {
               background: matId === m.id ? '#eff6ff' : 'white', cursor: 'pointer', textAlign: 'left',
             }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: matId === m.id ? '#1d4ed8' : '#1e293b' }}>{m.name}</div>
-              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                {m.fixedPrice !== undefined ? `${fmt(m.fixedPrice)} บ./ชิ้น` : `${fmt(m.pricePerSqm)} บ./ตร.ม.`}
+              <div style={{ fontSize: 11, color: m.quoteOnly ? '#7c3aed' : '#6b7280', marginTop: 2 }}>
+                {m.quoteOnly ? '📋 ประเมินราคา' : m.fixedPrice !== undefined ? `${fmt(m.fixedPrice)} บ./ชิ้น` : `${fmt(m.pricePerSqm)} บ./ตร.ม.`}
               </div>
             </button>
           ))}
@@ -186,8 +191,33 @@ export default function CalcPage() {
         )}
       </div>
 
+      {/* ── Quote-only notice ─────────────────────── */}
+      {isQuote && (
+        <div style={{ ...card, background: '#f5f3ff', borderColor: '#c4b5fd', borderWidth: 2 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#7c3aed', marginBottom: 10 }}>
+            📋 งานนี้ต้องประเมินราคา
+          </div>
+          <div style={{ fontSize: 13, color: '#4c1d95', lineHeight: 1.8, marginBottom: 12 }}>
+            กรุณาแจ้งข้อมูลต่อไปนี้เพื่อให้ทางร้านประเมินราคา:
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+            {[
+              '📐 ขนาดโดยรวมหรือขนาดของแต่ละตัวอักษร',
+              '🔤 จำนวนตัวอักษรและรูปแบบ/ฟอนต์',
+              '🖼️ ภาพตัวอย่างหรือแบบร่างคร่าวๆ (ถ้ามี)',
+              '🎨 สีที่ต้องการ',
+            ].map((t, i) => (
+              <div key={i} style={{ background: 'white', padding: '8px 12px', borderRadius: 8, fontSize: 13, color: '#374151' }}>{t}</div>
+            ))}
+          </div>
+          <div style={{ background: '#ede9fe', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: '#5b21b6' }}>
+            ⚠️ ราคาขึ้นอยู่กับขนาดและจำนวนตัวอักษร — ส่งข้อมูลมาแล้วร้านจะประเมินและแจ้งราคากลับ
+          </div>
+        </div>
+      )}
+
       {/* ── ขนาด ─────────────────────────────────── */}
-      <div style={card}>
+      {!isQuote && <div style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={sectionTitle}>ขนาด</div>
           <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
@@ -218,10 +248,10 @@ export default function CalcPage() {
             พื้นที่: {sqm.toFixed(4)} ตร.ม. · เส้นรอบวง: {perimeter.toFixed(2)} ม.
           </div>
         )}
-      </div>
+      </div>}
 
       {/* ── จำนวน + ราคาขั้นต่ำ ─────────────────── */}
-      <div style={card}>
+      {!isQuote && <div style={card}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <div>
             <label style={labelStyle}>จำนวน (ชิ้น)</label>
@@ -237,10 +267,10 @@ export default function CalcPage() {
           <input type="number" value={margin} onChange={e => setMargin(e.target.value)}
             placeholder="0 = ไม่เพิ่ม" style={inputStyle} />
         </div>
-      </div>
+      </div>}
 
       {/* ── งานตกแต่ง ─────────────────────────────── */}
-      <div style={card}>
+      {!isQuote && <div style={card}>
         <div style={sectionTitle}>งานตกแต่ง / Finishing</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {finishing.map((f, i) => (
@@ -286,7 +316,7 @@ export default function CalcPage() {
             <button onClick={resetFinishing} style={{ ...linkBtn, color: '#dc2626' }}>↺ รีเซ็ตเป็นค่าเริ่มต้น</button>
           </div>
         )}
-      </div>
+      </div>}
 
       {/* ── ผลลัพธ์ ──────────────────────────────── */}
       {(sqm > 0 || isFixed) && (
