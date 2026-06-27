@@ -107,24 +107,21 @@ export default function ScanPage() {
     const d = job.edited ?? job.data;
     if (!d) return;
 
-    // Find or create customer
-    let customerId: number | null = null;
-    if (d.customer_name) {
-      const { data: cust } = await supabase
-        .from('customers')
-        .select('id')
-        .ilike('name', d.customer_name.trim())
-        .maybeSingle();
-      if (cust) {
-        customerId = cust.id;
-      } else {
-        const { data: newCust } = await supabase
-          .from('customers')
-          .insert({ name: d.customer_name.trim() })
-          .select('id')
-          .single();
-        customerId = newCust?.id ?? null;
-      }
+    // Find or create customer — always resolves to an ID
+    async function resolveCustomer(name: string): Promise<number | null> {
+      const { data: found } = await supabase.from('customers').select('id').ilike('name', name).maybeSingle();
+      if (found?.id) return found.id;
+      const { data: created, error: ce } = await supabase.from('customers').insert({ name }).select('id').single();
+      if (ce) console.error('customer insert error:', ce.message);
+      return created?.id ?? null;
+    }
+
+    const wantedName = d.customer_name?.trim() || '';
+    let customerId: number | null = wantedName ? await resolveCustomer(wantedName) : null;
+    if (!customerId) customerId = await resolveCustomer('ไม่ระบุลูกค้า');
+    if (!customerId) {
+      alert('ไม่สามารถสร้างข้อมูลลูกค้าได้ — กรุณาตรวจสอบการเชื่อมต่อ Supabase');
+      return;
     }
 
     // Build detail string
@@ -148,17 +145,8 @@ export default function ScanPage() {
       balance: d.paid ? 0 : (d.price ?? 0),
       status,
       detail: detailParts.join('\n'),
+      customer_id: customerId,
     };
-    if (!customerId) {
-      const { data: existing } = await supabase.from('customers').select('id').eq('name', 'ไม่ระบุลูกค้า').maybeSingle();
-      if (existing) {
-        customerId = existing.id;
-      } else {
-        const { data: created } = await supabase.from('customers').insert({ name: 'ไม่ระบุลูกค้า' }).select('id').single();
-        customerId = created?.id ?? null;
-      }
-    }
-    if (customerId) payload.customer_id = customerId;
     if (d.work_date) payload.due_date = parseThaiDate(d.work_date);
 
     const { error } = await supabase.from('orders').insert(payload);
