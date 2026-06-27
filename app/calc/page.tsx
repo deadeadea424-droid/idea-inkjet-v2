@@ -392,16 +392,20 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
       parsedW = parseFloat(dimMatch[1]) || 0;
       parsedH = parseFloat(dimMatch[2]) || 0;
       // Check near the match first (higher priority), then full text as fallback
-      const near = text.slice(Math.max(0, (dimMatch.index ?? 0) - 5), (dimMatch.index ?? 0) + dimMatch[0].length + 30);
+      // near: 10 chars before + match + 60 chars after (enough to catch unit abbreviations)
+      const near = text.slice(Math.max(0, (dimMatch.index ?? 0) - 10), (dimMatch.index ?? 0) + dimMatch[0].length + 60);
       const around = near + ' ' + text;
-      if (/ซม|ซ\.ม\.?|เซนติเมตร|centimeter|cm/i.test(near)) du = 'cm';
-      else if (/นิ้ว|inch|"/i.test(near)) du = 'in';
-      else if (/ฟุต|feet|foot|ft/i.test(near)) du = 'ft';
-      else if (/\bเมตร\b|meter|metre|\bm\b/i.test(near)) du = 'm';
-      else if (/ซม|ซ\.ม\.?|เซนติเมตร|centimeter|cm/i.test(around)) du = 'cm';
-      else if (/นิ้ว|inch|"/i.test(around)) du = 'in';
-      else if (/ฟุต|feet|foot|ft/i.test(around)) du = 'ft';
-      else if (/\bเมตร\b|meter|metre/i.test(around)) du = 'm';
+      // cm must be checked BEFORE m because เซนติเมตร contains เมตร
+      if (/ซม\.?|ซ\.ม\.?|เซนติเมตร|เซนติ|centimeter|cm/i.test(near)) du = 'cm';
+      else if (/นิ้ว|inch|in\b|"/i.test(near)) du = 'in';
+      else if (/ฟุต|feet?|foot|\bft\b/i.test(near)) du = 'ft';
+      // ม. and ม (Thai meter abbrev) — safe in near text since it's targeted around digits
+      else if (/เมตร|ม\.?|meter|metre|\bm\b/i.test(near)) du = 'm';
+      else if (/ซม\.?|ซ\.ม\.?|เซนติเมตร|เซนติ|centimeter|cm/i.test(around)) du = 'cm';
+      else if (/นิ้ว|inch|in\b|"/i.test(around)) du = 'in';
+      else if (/ฟุต|feet?|foot|\bft\b/i.test(around)) du = 'ft';
+      // For full-text fallback keep เมตร/meter only (ม is too common in Thai words)
+      else if (/\bเมตร\b|meter|metre|\bm\b/i.test(around)) du = 'm';
     }
     const qtyMatch =
       text.match(/(\d+)\s*(?:ผืน|ชิ้น|แผ่น|อัน|ตัว|รูป|ใบ|pcs?|piece)/i) ??
