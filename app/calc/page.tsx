@@ -313,18 +313,6 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
 
   const cartGrandTotal = cartItems.reduce((s, i) => s + i.total, 0);
 
-  function addAllParsedToCart() {
-    if (parseItems.length === 0) return;
-    let counter = cartCounter;
-    const newItems: CartItem[] = [];
-    for (const item of parseItems) {
-      counter++;
-      newItems.push({ id: counter, matName: item.matName, dim: item.dim, sqm: item.sqm, isFixed: item.isFixed, qty: item.qty, unitWord: item.unitWord, pricePerPiece: item.pricePerPiece, total: item.total });
-    }
-    setCartCounter(counter);
-    setCartItems(prev => [...prev, ...newItems]);
-  }
-
   function copyParsedItems() {
     if (parseItems.length === 0) return;
     const lines: string[] = [];
@@ -512,46 +500,23 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
     const kwFallback = kwMatch(text);
 
     if (aiItems.length > 0) {
-      // ── AI path: AI understands text → local code matches material + computes price ──
       for (const ai of aiItems) {
         const parsedW = ai.width ? parseFloat(ai.width) : 0;
         const parsedH = ai.height ? parseFloat(ai.height) : 0;
         const aiUnit = ai.unit && ['cm','m','in','ft'].includes(ai.unit) ? ai.unit as 'cm'|'m'|'in'|'ft' : undefined;
-        // When AI doesn't return a unit, fall back to local regex detection rather than
-        // blindly defaulting to 'cm', which would miscompute meter-scale dimensions.
         const du = aiUnit ?? kwFallback.du;
         const parsedQ = ai.qty ? Math.max(1, parseInt(ai.qty) || 1) : 1;
-        // Match AI's free-text material description against local materials list
         const matId = ai.material ? scoreMaterial(ai.material) : undefined;
         const computed = calcItemPrice(matId, parsedW, parsedH, du, parsedQ);
         if (computed) results.push({ ...computed, isQuote: false });
       }
-      // Fill manual form from first item for convenience
-      const first = aiItems[0];
-      const firstMatId = first.material ? scoreMaterial(first.material) : undefined;
-      const firstMat = firstMatId ? materials.find(m => m.id === firstMatId) : null;
-      if (firstMat) setMatId(firstMat.id);
-      if (first.width) setWidth(first.width);
-      if (first.height) setHeight(first.height);
-      const firstDu = (first.unit && ['cm','m','in','ft'].includes(first.unit) ? first.unit as 'cm'|'m'|'in'|'ft' : undefined) ?? kwFallback.du;
-      if (firstDu) setUnit(firstDu);
-      if (first.qty) setQty(first.qty);
       if (results.length === 0) setParseInfo(['ไม่พบข้อมูล — ลองพิมพ์ชื่อวัสดุ ขนาด หรือจำนวน']);
     } else {
-      // ── Fallback: keyword matching ────────────────
+      // Fallback: keyword matching on full text
       const kw = kwMatch(text);
-      const parsedMat = kw.matId ? materials.find(m => m.id === kw.matId) ?? null : null;
-      const info: string[] = [];
-      if (parsedMat) { setMatId(parsedMat.id); info.push(`วัสดุ: ${parsedMat.name}`); }
-      if (kw.parsedW > 0 && kw.parsedH > 0) {
-        setWidth(String(kw.parsedW)); setHeight(String(kw.parsedH));
-        if (kw.du) setUnit(kw.du);
-        info.push(`ขนาด: ${kw.parsedW}×${kw.parsedH}${kw.du ? ' ' + kw.du : ''}`);
-      }
-      if (kw.parsedQ > 1) { setQty(String(kw.parsedQ)); info.push(`จำนวน: ${kw.parsedQ}`); }
       const computed = calcItemPrice(kw.matId, kw.parsedW, kw.parsedH, kw.du, kw.parsedQ);
       if (computed) results.push({ ...computed, isQuote: false });
-      setParseInfo(info.length > 0 ? info : ['ไม่พบข้อมูล — ลองพิมพ์ชื่อวัสดุ ขนาด หรือจำนวน']);
+      if (results.length === 0) setParseInfo(['ไม่พบข้อมูล — ลองพิมพ์ชื่อวัสดุ ขนาด หรือจำนวน']);
     }
 
     setParseItems(results);
