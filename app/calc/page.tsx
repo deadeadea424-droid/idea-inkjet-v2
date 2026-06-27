@@ -37,6 +37,37 @@ const fmt = (n: number) => Math.round(n).toLocaleString('th-TH');
 
 const MATERIALS_VER = 'v10';
 
+// keyword map: each material gets specific search tokens (lowercase)
+// score = sum of matched keyword lengths × 2 → longer/rarer match wins
+const MAT_KEYWORDS: Record<string, string[]> = {
+  vinyl_white:      ['ไวนิล', 'ขาว', 'หลังขาว', 'ไวนิลขาว', 'ไวนิลหลังขาว'],
+  vinyl_black:      ['ไวนิล', 'ดำ',  'หลังดำ',  'ไวนิลดำ',  'ไวนิลหลังดำ'],
+  fabric_it:        ['ผ้า', 'ไอที', 'ผ้าไอที', 'fabric'],
+  acrylic3_cut:     ['อะคริลิค', 'ตัด', 'ตัดอย่างเดียว', 'ตัดเฉย'],
+  acrylic3_sticker: ['อะคริลิค', 'สติ๊กเกอร์พิมพ์', 'อะคริลิค+สติ๊กเกอร์'],
+  acrylic3_diecut:  ['อะคริลิค', 'ไดคัท', 'อะคริลิคไดคัท'],
+  acrylic3_engrave: ['อะคริลิค', 'สลัก', 'engrave'],
+  future3:          ['ฟิวเจอร์', 'ฟิวเจอร์บอร์ด', '3มม', '3 มม', 'future 3'],
+  future5:          ['ฟิวเจอร์', 'ฟิวเจอร์บอร์ด', '5มม', '5 มม', 'future 5'],
+  sticker_future5:  ['สติ๊กเกอร์', 'รีด', 'ฟิวเจอร์', 'รีดฟิวเจอร์', 'สติ๊กเกอร์รีด'],
+  sticker_foam55:   ['สติ๊กเกอร์', 'รีด', 'โฟม', 'โฟมบอร์ด', 'รีดโฟม'],
+  sticker_print:    ['สติ๊กเกอร์', 'พิมพ์', 'สติ๊กเกอร์พิมพ์', 'sticker'],
+  sticker_diecut:   ['สติ๊กเกอร์', 'ไดคัท', 'สติ๊กเกอร์ไดคัท', 'diecut'],
+  sticker_clear:    ['สติ๊กเกอร์', 'ใส', 'สติ๊กเกอร์ใส', 'clear'],
+  xstand_v60:       ['x stand', 'xstand', 'ไวนิล', '60×160', '60x160'],
+  xstand_v80:       ['x stand', 'xstand', 'ไวนิล', '80×180', '80x180'],
+  xstand_p60:       ['x stand', 'xstand', 'กระดาษ', 'pp', '60×160'],
+  xstand_p80:       ['x stand', 'xstand', 'กระดาษ', 'pp', '80×180'],
+  rollup_p80:       ['โรลอัพ', 'โรล', 'rollup', 'roll up', 'ม้วน'],
+  paper_a4:         ['กระดาษ', 'a4', 'ธรรมดา', 'กระดาษa4'],
+  paper_art:        ['กระดาษ', 'อาร์ตมัน', 'อาร์ต', 'art', 'กระดาษอาร์ต'],
+  paper_lam:        ['กระดาษ', 'เคลือบ', 'a4 เคลือบ', 'กระดาษเคลือบ'],
+  letter_plastic:   ['อักษร', 'พลาสวูด', 'อักษรพลาส'],
+  letter_stainless: ['อักษร', 'สแตนเลส', 'stainless'],
+  letter_alu:       ['อักษร', 'อลูมิเนียม', 'อะลูมิเนียม', 'aluminium'],
+  letter_acrylic:   ['อักษร', 'อักษรอะคริลิค'],
+};
+
 function useLocalStorage<T>(key: string, init: T, version?: string): [T, (v: T) => void] {
   const [val, setVal] = useState<T>(init);
   useEffect(() => {
@@ -116,49 +147,68 @@ export default function CalcPage() {
   function parseAndApply() {
     if (!parseText.trim()) return;
     const text = parseText;
+    const tl = text.toLowerCase();
     const info: string[] = [];
 
-    // ── Material matching ──────────────────────────
+    // ── Material matching (weighted keyword score) ──
     let bestMatId: string | undefined;
     let bestScore = 0;
     for (const mat of materials) {
-      const parts = mat.name.split(/\s+/);
+      const nameWords = mat.name.toLowerCase().split(/\s+/).filter(w => w.length >= 1);
+      const kws = [...new Set([
+        mat.name.toLowerCase(),
+        ...nameWords,
+        ...(MAT_KEYWORDS[mat.id] ?? []).map(k => k.toLowerCase()),
+      ])];
       let score = 0;
-      for (const part of parts) {
-        if (part.length >= 2 && text.includes(part)) score++;
+      for (const kw of kws) {
+        if (tl.includes(kw)) score += kw.length * 2;
       }
       if (score > bestScore) { bestScore = score; bestMatId = mat.id; }
     }
-    if (bestMatId) {
+    if (bestMatId && bestScore > 0) {
       const found = materials.find(m => m.id === bestMatId)!;
       setMatId(bestMatId);
       info.push(`วัสดุ: ${found.name}`);
     }
 
-    // ── Dimension parsing ──────────────────────────
-    const dimMatch = text.match(/(\d+(?:\.\d+)?)\s*[xX×*]\s*(\d+(?:\.\d+)?)/);
+    // ── Dimension parsing (multiple patterns) ───────
+    const dimMatch =
+      text.match(/(\d+(?:\.\d+)?)\s*[xX×*]\s*(\d+(?:\.\d+)?)/) ??
+      text.match(/กว้าง\s*(\d+(?:\.\d+)?)[^0-9]{0,10}(?:สูง|ยาว)\s*(\d+(?:\.\d+)?)/) ??
+      text.match(/(\d+(?:\.\d+)?)\s*คูณ\s*(\d+(?:\.\d+)?)/);
     if (dimMatch) {
       setWidth(dimMatch[1]);
       setHeight(dimMatch[2]);
-      const after = text.slice((dimMatch.index ?? 0) + dimMatch[0].length, (dimMatch.index ?? 0) + dimMatch[0].length + 15);
+      // detect unit from text around the match AND full text
+      const around = text.slice(
+        Math.max(0, (dimMatch.index ?? 0) - 5),
+        (dimMatch.index ?? 0) + dimMatch[0].length + 20,
+      ) + ' ' + text;
       let du: 'cm' | 'm' | 'in' | 'ft' | undefined;
-      if (/ซม|ซ\.ม|cm/i.test(after)) du = 'cm';
-      else if (/เมตร|ม\.| ม |^ม/i.test(after) || / m[ .]| m$/i.test(after)) du = 'm';
-      else if (/นิ้ว|inch|in/i.test(after)) du = 'in';
-      else if (/ฟุต| ft/i.test(after)) du = 'ft';
+      if (/ซม|ซ\.ม\.?|centimeter|cm/i.test(around)) du = 'cm';
+      else if (/นิ้ว|inch|"/i.test(around)) du = 'in';
+      else if (/ฟุต|feet|foot|ft|'/i.test(around)) du = 'ft';
+      else if (/เมตร|meter|metre|\bm\b/i.test(around)) du = 'm';
       if (du) setUnit(du);
       info.push(`ขนาด: ${dimMatch[1]}×${dimMatch[2]}${du ? ' ' + du : ''}`);
     }
 
-    // ── Quantity parsing ───────────────────────────
-    const qtyMatch = text.match(/(\d+)\s*(?:ผืน|ชิ้น|แผ่น|อัน|pcs?)/i)
-      ?? text.match(/จำนวน\s*:?\s*(\d+)/i);
+    // ── Quantity parsing ─────────────────────────────
+    const qtyMatch =
+      text.match(/(\d+)\s*(?:ผืน|ชิ้น|แผ่น|อัน|ตัว|รูป|ใบ|pcs?|piece)/i) ??
+      text.match(/จำนวน\s*[:\s]*(\d+)/i);
     if (qtyMatch) {
       setQty(qtyMatch[1]);
       info.push(`จำนวน: ${qtyMatch[1]}`);
     }
 
     setParseInfo(info.length > 0 ? info : ['ไม่พบข้อมูล — ลองพิมพ์ชื่อวัสดุ ขนาด หรือจำนวน']);
+    if (info.length > 0) {
+      setTimeout(() => {
+        document.getElementById('calc-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 120);
+    }
   }
 
   return (
@@ -328,7 +378,7 @@ export default function CalcPage() {
 
       {/* ── ผลลัพธ์ ──────────────────────────────── */}
       {(sqm > 0 || isFixed) && (
-        <div style={{ ...card, background: '#1e293b', border: 'none' }}>
+        <div id="calc-result" style={{ ...card, background: '#1e293b', border: 'none' }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#94a3b8', marginBottom: 14 }}>สรุปราคา</div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
