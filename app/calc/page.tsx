@@ -52,7 +52,7 @@ export default function CalcPage() {
   const [matId, setMatId] = useState('vinyl440');
   const [width, setWidth] = useState('');
   const [height, setHeight] = useState('');
-  const [unit, setUnit] = useState<'cm' | 'm'>('cm');
+  const [unit, setUnit] = useState<'cm' | 'm' | 'in' | 'ft'>('cm');
   const [qty, setQty] = useState('1');
   const [minPrice, setMinPrice] = useState('50');
   const [finishing, setFinishing] = useLocalStorage<Finishing[]>('calc_finishing', DEFAULT_FINISHING);
@@ -69,8 +69,9 @@ export default function CalcPage() {
   const minNum = parseFloat(minPrice) || 0;
   const marginPct = parseFloat(margin) || 0;
 
-  const wM = unit === 'cm' ? wNum / 100 : wNum;
-  const hM = unit === 'cm' ? hNum / 100 : hNum;
+  const toM = (n: number) => unit === 'cm' ? n / 100 : unit === 'in' ? n * 0.0254 : unit === 'ft' ? n * 0.3048 : n;
+  const wM = toM(wNum);
+  const hM = toM(hNum);
   const sqm = wM * hM;
   const perimeter = 2 * (wM + hM);
 
@@ -173,9 +174,9 @@ export default function CalcPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={sectionTitle}>ขนาด</div>
           <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
-            {(['cm', 'm'] as const).map(u => (
+            {(['cm', 'm', 'in', 'ft'] as const).map(u => (
               <button key={u} onClick={() => setUnit(u)} style={{
-                padding: '5px 14px', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                padding: '5px 12px', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
                 background: unit === u ? '#1d4ed8' : 'white', color: unit === u ? 'white' : '#6b7280',
               }}>{u}</button>
             ))}
@@ -186,12 +187,12 @@ export default function CalcPage() {
           <div>
             <label style={labelStyle}>กว้าง ({unit})</label>
             <input type="number" value={width} onChange={e => setWidth(e.target.value)}
-              placeholder={unit === 'cm' ? 'เช่น 120' : 'เช่น 1.2'} style={inputStyle} />
+              placeholder={unit==='cm'?'เช่น 120':unit==='m'?'เช่น 1.2':unit==='in'?'เช่น 48':'เช่น 4'} style={inputStyle} />
           </div>
           <div>
             <label style={labelStyle}>สูง ({unit})</label>
             <input type="number" value={height} onChange={e => setHeight(e.target.value)}
-              placeholder={unit === 'cm' ? 'เช่น 240' : 'เช่น 2.4'} style={inputStyle} />
+              placeholder={unit==='cm'?'เช่น 240':unit==='m'?'เช่น 2.4':unit==='in'?'เช่น 96':'เช่น 8'} style={inputStyle} />
           </div>
         </div>
 
