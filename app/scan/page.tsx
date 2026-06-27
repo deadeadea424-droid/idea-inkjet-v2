@@ -49,22 +49,28 @@ export default function ScanPage() {
 
   function addFiles(files: FileList | null) {
     if (!files) return;
-    const newItems: JobItem[] = Array.from(files)
-      .filter(f => f.type.startsWith('image/'))
-      .map(f => ({
-        id: Math.random().toString(36).slice(2),
-        file: f,
-        preview: URL.createObjectURL(f),
-        status: 'idle',
-        data: null,
-        error: null,
-        edited: null,
-      }));
+    const allFiles = Array.from(files);
+    const imageFiles = allFiles.filter(f => f.type.startsWith('image/'));
+    const skipped = allFiles.length - imageFiles.length;
+    if (skipped > 0) alert(`ข้าม ${skipped} ไฟล์ที่ไม่ใช่รูปภาพ (รองรับ JPG, PNG, WEBP เท่านั้น)`);
+    const newItems: JobItem[] = imageFiles.map(f => ({
+      id: crypto.randomUUID(),
+      file: f,
+      preview: URL.createObjectURL(f),
+      status: 'idle',
+      data: null,
+      error: null,
+      edited: null,
+    }));
     setJobs(prev => [...prev, ...newItems]);
   }
 
   function removeJob(id: string) {
-    setJobs(prev => prev.filter(j => j.id !== id));
+    setJobs(prev => {
+      const job = prev.find(j => j.id === id);
+      if (job?.preview) URL.revokeObjectURL(job.preview);
+      return prev.filter(j => j.id !== id);
+    });
   }
 
   function updateEdited(id: string, field: keyof ScannedData, value: string) {
@@ -131,8 +137,11 @@ export default function ScanPage() {
       `[สแกนจากใบงาน]`,
     ].filter(Boolean);
 
-    // Map paid → status
-    const status = d.paid === true ? 'ชำระเงินแล้ว' : d.paid === false ? 'ลูกค้ารับแล้ว' : 'ผลิตเสร็จ';
+    // Map paid → status and deposit/balance
+    const price = d.price ?? 0;
+    const status = d.paid === true ? 'ชำระเงินแล้ว' : d.paid === false ? 'ลูกค้ารับแล้ว' : 'รับงานใหม่';
+    const deposit = d.paid === true ? price : 0;
+    const balance = d.paid === true ? 0 : price;
 
     const payload: Record<string, any> = {
       title: d.title ?? '(ไม่ระบุ)',
@@ -140,9 +149,9 @@ export default function ScanPage() {
       size: d.size ?? '',
       quantity: d.quantity ?? 0,
       material: d.material ?? '',
-      price: d.price ?? 0,
-      deposit: d.paid ? (d.price ?? 0) : 0,
-      balance: d.paid ? 0 : (d.price ?? 0),
+      price,
+      deposit,
+      balance,
       status,
       detail: detailParts.join('\n'),
       customer_id: customerId,
@@ -160,11 +169,17 @@ export default function ScanPage() {
   function parseThaiDate(s: string): string | null {
     const m = s.match(/(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})/);
     if (!m) return null;
-    let y = parseInt(m[3]);
-    if (y < 100) y = y > 50 ? y + 1900 : y + 2000; // 2-digit year
-    if (y > 2400) y = y - 543; // Thai Buddhist year
+    let y = parseInt(m[3], 10);
+    if (y < 100) {
+      // 60-99 = Thai short year (e.g. 67 = BE 2567 = CE 2024)
+      // 0-59  = Gregorian short year (e.g. 24 = CE 2024)
+      y = y >= 60 ? y + 1957 : y + 2000;
+    }
+    if (y > 2400) y = y - 543; // full Thai Buddhist year → Gregorian
     const mm = m[2].padStart(2, '0');
     const dd = m[1].padStart(2, '0');
+    // Sanity check: reject clearly invalid dates
+    if (y < 1990 || y > 2100) return null;
     return `${y}-${mm}-${dd}`;
   }
 
