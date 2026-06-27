@@ -136,6 +136,37 @@ const fmt = (n: number) => Math.round(n).toLocaleString('th-TH');
 
 const MATERIALS_VER = 'v10';
 
+// keyword map: each material gets specific search tokens (lowercase)
+// score = sum of matched keyword lengths × 2 → longer/rarer match wins
+const MAT_KEYWORDS: Record<string, string[]> = {
+  vinyl_white:      ['ไวนิล', 'ขาว', 'หลังขาว', 'ไวนิลขาว', 'ไวนิลหลังขาว'],
+  vinyl_black:      ['ไวนิล', 'ดำ',  'หลังดำ',  'ไวนิลดำ',  'ไวนิลหลังดำ'],
+  fabric_it:        ['ผ้า', 'ไอที', 'ผ้าไอที', 'fabric'],
+  acrylic3_cut:     ['อะคริลิค', 'ตัด', 'ตัดอย่างเดียว', 'ตัดเฉย'],
+  acrylic3_sticker: ['อะคริลิค', 'สติ๊กเกอร์พิมพ์', 'อะคริลิค+สติ๊กเกอร์'],
+  acrylic3_diecut:  ['อะคริลิค', 'ไดคัท', 'อะคริลิคไดคัท'],
+  acrylic3_engrave: ['อะคริลิค', 'สลัก', 'engrave'],
+  future3:          ['ฟิวเจอร์', 'ฟิวเจอร์บอร์ด', '3มม', '3 มม', 'future 3'],
+  future5:          ['ฟิวเจอร์', 'ฟิวเจอร์บอร์ด', '5มม', '5 มม', 'future 5'],
+  sticker_future5:  ['สติ๊กเกอร์', 'รีด', 'ฟิวเจอร์', 'รีดฟิวเจอร์', 'สติ๊กเกอร์รีด'],
+  sticker_foam55:   ['สติ๊กเกอร์', 'รีด', 'โฟม', 'โฟมบอร์ด', 'รีดโฟม'],
+  sticker_print:    ['สติ๊กเกอร์', 'พิมพ์', 'สติ๊กเกอร์พิมพ์', 'sticker'],
+  sticker_diecut:   ['สติ๊กเกอร์', 'ไดคัท', 'สติ๊กเกอร์ไดคัท', 'diecut'],
+  sticker_clear:    ['สติ๊กเกอร์', 'ใส', 'สติ๊กเกอร์ใส', 'clear'],
+  xstand_v60:       ['x stand', 'xstand', 'ไวนิล', '60×160', '60x160'],
+  xstand_v80:       ['x stand', 'xstand', 'ไวนิล', '80×180', '80x180'],
+  xstand_p60:       ['x stand', 'xstand', 'กระดาษ', 'pp', '60×160'],
+  xstand_p80:       ['x stand', 'xstand', 'กระดาษ', 'pp', '80×180'],
+  rollup_p80:       ['โรลอัพ', 'โรล', 'rollup', 'roll up', 'ม้วน'],
+  paper_a4:         ['กระดาษ', 'a4', 'ธรรมดา', 'กระดาษa4'],
+  paper_art:        ['กระดาษ', 'อาร์ตมัน', 'อาร์ต', 'art', 'กระดาษอาร์ต'],
+  paper_lam:        ['กระดาษ', 'เคลือบ', 'a4 เคลือบ', 'กระดาษเคลือบ'],
+  letter_plastic:   ['อักษร', 'พลาสวูด', 'อักษรพลาส'],
+  letter_stainless: ['อักษร', 'สแตนเลส', 'stainless'],
+  letter_alu:       ['อักษร', 'อลูมิเนียม', 'อะลูมิเนียม', 'aluminium'],
+  letter_acrylic:   ['อักษร', 'อักษรอะคริลิค'],
+};
+
 function useLocalStorage<T>(key: string, init: T, version?: string): [T, (v: T) => void] {
   const [val, setVal] = useState<T>(init);
   useEffect(() => {
@@ -187,6 +218,22 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
   const [copied, setCopied] = useState(false);
   const [parseText, setParseText] = useState('');
   const [parseInfo, setParseInfo] = useState<string[]>([]);
+  const [parseResult, setParseResult] = useState<{
+    matName: string; isFixed: boolean; isQuote: boolean;
+    dim?: string; sqm: number; qty: number; unitWord: string;
+    pricePerPiece: number; total: number; vinylMin?: string; minTotalApplied?: boolean;
+  } | null>(null);
+  const [parseCopied, setParseCopied] = useState(false);
+  const [ownerPin, setOwnerPin] = useState('');
+  const [matUnlocked, setMatUnlocked] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinErr, setPinErr] = useState('');
+
+  useEffect(() => {
+    supabase.from('app_settings').select('value').eq('key', 'owner_pin').single()
+      .then(({ data }) => setOwnerPin(data?.value ?? ''));
+  }, []);
 
   const mat = materials.find(m => m.id === matId) ?? materials[0];
   const wNum = parseFloat(width) || 0;
@@ -238,46 +285,97 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
   function parseAndApply() {
     if (!parseText.trim()) return;
     const text = parseText;
+    const tl = text.toLowerCase();
     const info: string[] = [];
 
-    // ── Material matching ──────────────────────────
+    // ── Material matching (weighted keyword score) ──
     let bestMatId: string | undefined;
     let bestScore = 0;
-    for (const mat of materials) {
-      const parts = mat.name.split(/\s+/);
+    for (const m of materials) {
+      const nameWords = m.name.toLowerCase().split(/\s+/).filter(w => w.length >= 1);
+      const kws = [...new Set([
+        m.name.toLowerCase(),
+        ...nameWords,
+        ...(MAT_KEYWORDS[m.id] ?? []).map(k => k.toLowerCase()),
+      ])];
       let score = 0;
-      for (const part of parts) {
-        if (part.length >= 2 && text.includes(part)) score++;
-      }
-      if (score > bestScore) { bestScore = score; bestMatId = mat.id; }
+      for (const kw of kws) { if (tl.includes(kw)) score += kw.length * 2; }
+      if (score > bestScore) { bestScore = score; bestMatId = m.id; }
     }
-    if (bestMatId) {
-      const found = materials.find(m => m.id === bestMatId)!;
-      setMatId(bestMatId);
-      info.push(`วัสดุ: ${found.name}`);
-    }
+    const parsedMat = (bestMatId && bestScore > 0)
+      ? materials.find(m => m.id === bestMatId)!
+      : null;
+    if (parsedMat) { setMatId(parsedMat.id); info.push(`วัสดุ: ${parsedMat.name}`); }
 
-    // ── Dimension parsing ──────────────────────────
-    const dimMatch = text.match(/(\d+(?:\.\d+)?)\s*[xX×*]\s*(\d+(?:\.\d+)?)/);
+    // ── Dimension parsing ───────────────────────────
+    const dimMatch =
+      text.match(/(\d+(?:\.\d+)?)\s*[xX×*]\s*(\d+(?:\.\d+)?)/) ??
+      text.match(/กว้าง\s*(\d+(?:\.\d+)?)[^0-9]{0,10}(?:สูง|ยาว)\s*(\d+(?:\.\d+)?)/) ??
+      text.match(/(\d+(?:\.\d+)?)\s*คูณ\s*(\d+(?:\.\d+)?)/);
+    let parsedW = 0, parsedH = 0;
+    let du: 'cm' | 'm' | 'in' | 'ft' | undefined;
     if (dimMatch) {
+      parsedW = parseFloat(dimMatch[1]) || 0;
+      parsedH = parseFloat(dimMatch[2]) || 0;
       setWidth(dimMatch[1]);
       setHeight(dimMatch[2]);
-      const after = text.slice((dimMatch.index ?? 0) + dimMatch[0].length, (dimMatch.index ?? 0) + dimMatch[0].length + 15);
-      let du: 'cm' | 'm' | 'in' | 'ft' | undefined;
-      if (/ซม|ซ\.ม|cm/i.test(after)) du = 'cm';
-      else if (/เมตร|ม\.| ม |^ม/i.test(after) || / m[ .]| m$/i.test(after)) du = 'm';
-      else if (/นิ้ว|inch|in/i.test(after)) du = 'in';
-      else if (/ฟุต| ft/i.test(after)) du = 'ft';
+      const around = text.slice(
+        Math.max(0, (dimMatch.index ?? 0) - 5),
+        (dimMatch.index ?? 0) + dimMatch[0].length + 20,
+      ) + ' ' + text;
+      if (/ซม|ซ\.ม\.?|centimeter|cm/i.test(around)) du = 'cm';
+      else if (/นิ้ว|inch|"/i.test(around)) du = 'in';
+      else if (/ฟุต|feet|foot|ft|'/i.test(around)) du = 'ft';
+      else if (/เมตร|meter|metre|\bm\b/i.test(around)) du = 'm';
       if (du) setUnit(du);
       info.push(`ขนาด: ${dimMatch[1]}×${dimMatch[2]}${du ? ' ' + du : ''}`);
     }
 
-    // ── Quantity parsing ───────────────────────────
-    const qtyMatch = text.match(/(\d+)\s*(?:ผืน|ชิ้น|แผ่น|อัน|pcs?)/i)
-      ?? text.match(/จำนวน\s*:?\s*(\d+)/i);
+    // ── Quantity parsing ─────────────────────────────
+    const qtyMatch =
+      text.match(/(\d+)\s*(?:ผืน|ชิ้น|แผ่น|อัน|ตัว|รูป|ใบ|pcs?|piece)/i) ??
+      text.match(/จำนวน\s*[:\s]*(\d+)/i);
+    let parsedQ = 1;
     if (qtyMatch) {
+      parsedQ = Math.max(1, parseInt(qtyMatch[1]) || 1);
       setQty(qtyMatch[1]);
       info.push(`จำนวน: ${qtyMatch[1]}`);
+    }
+
+    // ── Inline price computation ─────────────────────
+    const activeMat = parsedMat ?? (materials.find(m => m.id === matId) ?? materials[0]);
+    const activeUnit = du ?? unit;
+    const toM2 = (n: number) =>
+      activeUnit === 'cm' ? n / 100 : activeUnit === 'in' ? n * 0.0254 : activeUnit === 'ft' ? n * 0.3048 : n;
+    const parsedSqm = toM2(parsedW) * toM2(parsedH);
+
+    const isParsedFixed = activeMat.fixedPrice !== undefined;
+    const isParsedVinyl = activeMat.id.startsWith('vinyl_');
+    const parsedFp = parseFloat(fixedPrices[activeMat.id] ?? '') || activeMat.fixedPrice || 0;
+    const parsedBase = isParsedFixed ? parsedFp : activeMat.pricePerSqm * parsedSqm;
+
+    let parsedPpp = parsedBase;
+    let parsedVinylMin = '';
+    if (isParsedVinyl && parsedBase > 0) {
+      if (parsedBase < 100) { parsedPpp = 100; parsedVinylMin = 'ขั้นต่ำ 100 บาท'; }
+      else if (parsedBase < 150) { parsedPpp = 150; parsedVinylMin = 'ขั้นต่ำ 150 บาท'; }
+      else if (parsedBase < 200 && parsedQ === 1) { parsedPpp = 200; parsedVinylMin = 'ขั้นต่ำ 200 บาท (สั่ง 1 ผืน)'; }
+    }
+    const parsedRaw = parsedPpp * parsedQ;
+    const parsedTotal = activeMat.minTotal ? Math.max(parsedRaw, activeMat.minTotal) : parsedRaw;
+    const unitWord = activeMat.id.startsWith('paper_') ? 'แผ่น' : 'ชิ้น';
+
+    if ((parsedSqm > 0 || isParsedFixed) && !activeMat.quoteOnly) {
+      setParseResult({
+        matName: activeMat.name, isFixed: isParsedFixed, isQuote: false,
+        dim: dimMatch ? `${dimMatch[1]}×${dimMatch[2]}${du ? ' ' + du : ''}` : undefined,
+        sqm: parsedSqm, qty: parsedQ, unitWord,
+        pricePerPiece: parsedPpp, total: parsedTotal,
+        vinylMin: parsedVinylMin || undefined,
+        minTotalApplied: !!(activeMat.minTotal && parsedRaw < activeMat.minTotal),
+      });
+    } else {
+      setParseResult(null);
     }
 
     setParseInfo(info.length > 0 ? info : ['ไม่พบข้อมูล — ลองพิมพ์ชื่อวัสดุ ขนาด หรือจำนวน']);
@@ -332,6 +430,71 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
             ))}
           </div>
         )}
+
+        {/* ── ผลคำนวณ inline ───────────────────────── */}
+        {parseResult && (
+          <div style={{ marginTop: 12, background: '#1e293b', borderRadius: 14, padding: '14px 16px' }}>
+            <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 10, fontWeight: 600 }}>สรุปราคา</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                <span style={{ color: '#64748b' }}>วัสดุ</span>
+                <span style={{ color: '#94a3b8', fontWeight: 600 }}>{parseResult.matName}</span>
+              </div>
+              {parseResult.dim && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: '#64748b' }}>ขนาด</span>
+                  <span style={{ color: '#94a3b8', fontWeight: 600 }}>
+                    {parseResult.dim}{!parseResult.isFixed ? ` (${parseResult.sqm.toFixed(2)} ตร.ม.)` : ''}
+                  </span>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                <span style={{ color: '#64748b' }}>จำนวน</span>
+                <span style={{ color: '#94a3b8', fontWeight: 600 }}>{parseResult.qty} {parseResult.unitWord}</span>
+              </div>
+              {parseResult.vinylMin && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: '#fbbf24' }}>{parseResult.vinylMin}</span>
+                  <span style={{ color: '#fbbf24', fontWeight: 600 }}>{fmt(parseResult.pricePerPiece)} บาท/{parseResult.unitWord}</span>
+                </div>
+              )}
+              <div style={{ borderTop: '1px solid #334155', marginTop: 6, paddingTop: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 13, color: '#cbd5e1' }}>ราคา/{parseResult.unitWord}</span>
+                  <span style={{ fontSize: 17, fontWeight: 800, color: '#f1f5f9' }}>{fmt(parseResult.pricePerPiece)} บาท</span>
+                </div>
+                {parseResult.qty > 1 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
+                    <span style={{ fontSize: 13, color: '#cbd5e1' }}>รวม {parseResult.qty} {parseResult.unitWord}</span>
+                    <span style={{ fontSize: 20, fontWeight: 800, color: '#f1f5f9' }}>{fmt(parseResult.total)} บาท</span>
+                  </div>
+                )}
+                {parseResult.minTotalApplied && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginTop: 4 }}>
+                    <span style={{ color: '#fbbf24' }}>ขั้นต่ำ</span>
+                    <span style={{ color: '#fbbf24', fontWeight: 700 }}>{fmt(parseResult.total)} บาท</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <button onClick={() => {
+              const lines = [
+                `วัสดุ: ${parseResult.matName}`,
+                parseResult.dim ? `ขนาด: ${parseResult.dim}${!parseResult.isFixed ? ` (${parseResult.sqm.toFixed(2)} ตร.ม.)` : ''}` : '',
+                `จำนวน: ${parseResult.qty} ${parseResult.unitWord}`,
+                `ราคา/${parseResult.unitWord}: ${fmt(parseResult.pricePerPiece)} บาท`,
+                parseResult.qty > 1 ? `รวม: ${fmt(parseResult.total)} บาท` : '',
+                `ขอบคุณที่ใช้บริการครับ`,
+              ].filter(Boolean).join('\n');
+              navigator.clipboard?.writeText(lines).then(() => { setParseCopied(true); setTimeout(() => setParseCopied(false), 2500); });
+            }} style={{
+              marginTop: 10, width: '100%', padding: '10px', borderRadius: 8, border: 'none',
+              cursor: 'pointer', background: parseCopied ? '#16a34a' : '#3b82f6', color: 'white', fontWeight: 700, fontSize: 14,
+            }}>
+              {parseCopied ? '✅ คัดลอกแล้ว!' : '📋 คัดลอกผลลัพธ์'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── วัสดุ ─────────────────────────────────── */}
@@ -361,8 +524,12 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
           </div>
         )}
 
-        <button onClick={() => setShowEditMat(!showEditMat)} style={linkBtn}>
-          {showEditMat ? '▲ ซ่อน' : '✏️ แก้ราคาวัสดุ'}
+        <button onClick={() => {
+          if (showEditMat) { setShowEditMat(false); return; }
+          if (matUnlocked || !ownerPin) { setShowEditMat(true); return; }
+          setPinInput(''); setPinErr(''); setShowPinModal(true);
+        }} style={linkBtn}>
+          {showEditMat ? '▲ ซ่อน' : `✏️ แก้ราคาวัสดุ${ownerPin && !matUnlocked ? ' 🔒' : ''}`}
         </button>
 
         {showEditMat && (
@@ -456,7 +623,7 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
 
       {/* ── ผลลัพธ์ ──────────────────────────────── */}
       {(sqm > 0 || isFixed) && (
-        <div style={{ ...card, background: '#1e293b', border: 'none' }}>
+        <div id="calc-result" style={{ ...card, background: '#1e293b', border: 'none' }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#94a3b8', marginBottom: 14 }}>สรุปราคา</div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -523,6 +690,50 @@ function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void 
           ))}
         </div>
       </div>
+
+      {/* ── PIN Modal ────────────────────────────────── */}
+      {showPinModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 20,
+        }} onClick={() => setShowPinModal(false)}>
+          <div style={{
+            background: 'white', borderRadius: 20, padding: '28px 24px', width: '100%', maxWidth: 340,
+            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: '#1e293b', marginBottom: 4 }}>🔒 สิทธิ์เจ้าของร้าน</div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 20 }}>ใส่รหัสเจ้าของร้านเพื่อแก้ราคาวัสดุ</div>
+            <input
+              type="password"
+              inputMode="numeric"
+              placeholder="รหัสผ่าน"
+              autoFocus
+              value={pinInput}
+              onChange={e => { setPinInput(e.target.value); setPinErr(''); }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  if (pinInput === ownerPin) {
+                    setMatUnlocked(true); setShowPinModal(false); setShowEditMat(true);
+                  } else { setPinErr('รหัสไม่ถูกต้อง'); }
+                }
+              }}
+              style={{ ...inputStyle, marginBottom: 8, fontSize: 18, letterSpacing: 4, textAlign: 'center' }}
+            />
+            {pinErr && <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 8 }}>{pinErr}</div>}
+            <button onClick={() => {
+              if (pinInput === ownerPin) {
+                setMatUnlocked(true); setShowPinModal(false); setShowEditMat(true);
+              } else { setPinErr('รหัสไม่ถูกต้อง'); }
+            }} style={{
+              width: '100%', padding: '12px', borderRadius: 10, border: 'none',
+              background: '#1d4ed8', color: 'white', fontWeight: 700, fontSize: 15, cursor: 'pointer',
+            }}>ยืนยัน</button>
+            <button onClick={() => setShowPinModal(false)} style={{
+              ...linkBtn, display: 'block', width: '100%', textAlign: 'center', marginTop: 10, color: '#6b7280',
+            }}>ยกเลิก</button>
+          </div>
+        </div>
+      )}
 
     </main>
   );
