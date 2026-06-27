@@ -2,9 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Material = { id: string; name: string; pricePerSqm: number; fixedPrice?: number; quoteOnly?: boolean };
-type Finishing = { id: string; name: string; unit: 'sqm' | 'perimeter' | 'piece' | 'fixed'; price: number; enabled: boolean; qty?: number };
-
+type Material = { id: string; name: string; pricePerSqm: number; fixedPrice?: number; quoteOnly?: boolean; minTotal?: number };
 const DEFAULT_MATERIALS: Material[] = [
   { id: 'vinyl_white', name: 'ไวนิลหลังขาว', pricePerSqm: 150 },
   { id: 'vinyl_black', name: 'ไวนิลหลังดำ', pricePerSqm: 150 },
@@ -26,25 +24,19 @@ const DEFAULT_MATERIALS: Material[] = [
   { id: 'xstand_p60', name: 'X Stand กระดาษก๊อซซี่ PP 60×160 ซม.', pricePerSqm: 0, fixedPrice: 800 },
   { id: 'xstand_p80', name: 'X Stand กระดาษก๊อซซี่ PP 80×180 ซม.', pricePerSqm: 0, fixedPrice: 1000 },
   { id: 'rollup_p80', name: 'โรลอัพ กระดาษก๊อซซี่ PP 80×200 ซม.', pricePerSqm: 0, fixedPrice: 1500 },
+  { id: 'paper_a4', name: 'กระดาษ A4 ธรรมดา', pricePerSqm: 0, fixedPrice: 10, minTotal: 50 },
+  { id: 'paper_art', name: 'อาร์ตมัน A4', pricePerSqm: 0, fixedPrice: 20, minTotal: 50 },
+  { id: 'paper_lam', name: 'A4 เคลือบ', pricePerSqm: 0, fixedPrice: 50, minTotal: 50 },
   { id: 'letter_plastic', name: 'อักษรพลาสวูด', pricePerSqm: 0, quoteOnly: true },
   { id: 'letter_stainless', name: 'อักษรสแตนเลส', pricePerSqm: 0, quoteOnly: true },
   { id: 'letter_alu', name: 'อักษรอลูมิเนียม', pricePerSqm: 0, quoteOnly: true },
   { id: 'letter_acrylic', name: 'อักษรอะคริลิค', pricePerSqm: 0, quoteOnly: true },
 ];
 
-const DEFAULT_FINISHING: Finishing[] = [
-  { id: 'eyelet', name: 'ตอกตาไก่', unit: 'piece', price: 5, enabled: false, qty: 4 },
-  { id: 'rope', name: 'ม้วนขอบ + เชือก', unit: 'perimeter', price: 25, enabled: false },
-  { id: 'hem', name: 'ม้วนขอบ (ไม่มีเชือก)', unit: 'perimeter', price: 15, enabled: false },
-  { id: 'lam_gloss', name: 'เคลือบใส', unit: 'sqm', price: 100, enabled: false },
-  { id: 'lam_matte', name: 'เคลือบด้าน', unit: 'sqm', price: 100, enabled: false },
-  { id: 'frame_alu', name: 'กรอบอลูมิเนียม', unit: 'perimeter', price: 80, enabled: false },
-  { id: 'install', name: 'ค่าติดตั้ง', unit: 'fixed', price: 200, enabled: false },
-];
 
 const fmt = (n: number) => Math.round(n).toLocaleString('th-TH');
 
-const MATERIALS_VER = 'v8';
+const MATERIALS_VER = 'v9';
 
 function useLocalStorage<T>(key: string, init: T, version?: string): [T, (v: T) => void] {
   const [val, setVal] = useState<T>(init);
@@ -69,9 +61,7 @@ export default function CalcPage() {
   const [height, setHeight] = useState('');
   const [unit, setUnit] = useState<'cm' | 'm' | 'in' | 'ft'>('cm');
   const [qty, setQty] = useState('1');
-  const [finishing, setFinishing] = useLocalStorage<Finishing[]>('calc_finishing', DEFAULT_FINISHING);
   const [showEditMat, setShowEditMat] = useState(false);
-  const [showEditFin, setShowEditFin] = useState(false);
   const [fixedPrices, setFixedPrices] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
 
@@ -85,42 +75,39 @@ export default function CalcPage() {
   const wM = toM(wNum);
   const hM = toM(hNum);
   const sqm = wM * hM;
-  const perimeter = 2 * (wM + hM);
 
-  function calcFinishingCost(f: Finishing): number {
-    if (!f.enabled) return 0;
-    switch (f.unit) {
-      case 'sqm':       return f.price * sqm;
-      case 'perimeter': return f.price * perimeter;
-      case 'piece':     return f.price * (f.qty ?? 1);
-      case 'fixed':     return f.price;
-    }
-  }
 
   const isFixed = mat.fixedPrice !== undefined;
   const isQuote = !!mat.quoteOnly;
+  const isVinyl = mat.id.startsWith('vinyl_');
   const fixedVal = parseFloat(fixedPrices[mat.id] ?? '') || mat.fixedPrice || 0;
   const basePricePerPiece = isFixed ? fixedVal : mat.pricePerSqm * sqm;
-  const finishingTotalPerPiece = finishing.reduce((s, f) => s + calcFinishingCost(f), 0);
-  const rawPerPiece = basePricePerPiece + finishingTotalPerPiece;
-  const pricePerPiece = rawPerPiece;
-  const total = pricePerPiece * qNum;
+  const rawPerPiece = basePricePerPiece;
+
+  // ไวนิล: ขั้นต่ำแบบ tier
+  let pricePerPiece = rawPerPiece;
+  let vinylMinApplied = '';
+  if (isVinyl && rawPerPiece > 0) {
+    if (rawPerPiece < 100) { pricePerPiece = 100; vinylMinApplied = 'ขั้นต่ำ 100 บาท'; }
+    else if (rawPerPiece < 150) { pricePerPiece = 150; vinylMinApplied = 'ขั้นต่ำ 150 บาท'; }
+  }
+
+  const rawTotal = pricePerPiece * qNum;
+  const total = mat.minTotal ? Math.max(rawTotal, mat.minTotal) : rawTotal;
+  const minTotalApplied = mat.minTotal && rawTotal < mat.minTotal;
 
   function copyResult() {
     const w = unit === 'cm' ? `${wNum}×${hNum} ซม.` : `${wNum}×${hNum} ม.`;
-    const fins = finishing.filter(f => f.enabled).map(f => f.name).join(', ');
     const text = [
       `วัสดุ: ${mat.name}`,
-      `ขนาด: ${w} (${sqm.toFixed(2)} ตร.ม.)`,
-      `จำนวน: ${qNum} ชิ้น`,
-      fins ? `งานตกแต่ง: ${fins}` : '',
+      !isFixed ? `ขนาด: ${w} (${sqm.toFixed(2)} ตร.ม.)` : '',
+      `จำนวน: ${qNum} ${mat.id.startsWith('paper_') ? 'แผ่น' : 'ชิ้น'}`,
       `ราคา/ชิ้น: ${fmt(pricePerPiece)} บาท`,
       `รวม: ${fmt(total)} บาท`,
     ].filter(Boolean).join('\n');
     navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2500); });
   }
 
-  function resetFinishing() { setFinishing(DEFAULT_FINISHING); }
   function resetMaterials() { setMaterials(DEFAULT_MATERIALS); }
 
   return (
@@ -241,7 +228,7 @@ export default function CalcPage() {
 
         {sqm > 0 && (
           <div style={{ background: '#eff6ff', borderRadius: 8, padding: '8px 12px', fontSize: 13, color: '#1d4ed8', fontWeight: 600 }}>
-            พื้นที่: {sqm.toFixed(4)} ตร.ม. · เส้นรอบวง: {perimeter.toFixed(2)} ม.
+            พื้นที่: {sqm.toFixed(4)} ตร.ม.
           </div>
         )}
       </div>}
@@ -249,59 +236,11 @@ export default function CalcPage() {
       {/* ── จำนวน ────────────────────────────────── */}
       {!isQuote && <div style={card}>
         <div>
-          <label style={labelStyle}>จำนวน (ชิ้น)</label>
+          <label style={labelStyle}>จำนวน ({mat.id.startsWith('paper_') ? 'แผ่น' : 'ชิ้น'})</label>
           <input type="number" min="1" value={qty} onChange={e => setQty(e.target.value)} style={inputStyle} />
         </div>
       </div>}
 
-      {/* ── งานตกแต่ง ─────────────────────────────── */}
-      {!isQuote && <div style={card}>
-        <div style={sectionTitle}>งานตกแต่ง / Finishing</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {finishing.map((f, i) => (
-            <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10,
-              padding: '8px 10px', borderRadius: 8, background: f.enabled ? '#f0fdf4' : '#f8fafc',
-              border: `1px solid ${f.enabled ? '#bbf7d0' : '#f1f5f9'}` }}>
-              <input type="checkbox" checked={f.enabled} onChange={e => {
-                const n = [...finishing]; n[i] = { ...f, enabled: e.target.checked }; setFinishing(n);
-              }} style={{ width: 18, height: 18, accentColor: '#16a34a', flexShrink: 0, cursor: 'pointer' }} />
-              <div style={{ flex: 1, fontSize: 13, color: '#1e293b', fontWeight: f.enabled ? 600 : 400 }}>{f.name}</div>
-              {f.unit === 'piece' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 11, color: '#6b7280' }}>จำนวนรู</span>
-                  <input type="number" value={f.qty ?? 4} min={1}
-                    onChange={e => { const n = [...finishing]; n[i] = { ...f, qty: parseInt(e.target.value) || 1 }; setFinishing(n); }}
-                    style={{ width: 52, padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, textAlign: 'center' }} />
-                </div>
-              )}
-              <div style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' }}>
-                {f.unit === 'sqm'       && `${fmt(f.price)} บ./ตร.ม.`}
-                {f.unit === 'perimeter' && `${fmt(f.price)} บ./ม.`}
-                {f.unit === 'piece'     && `${fmt(f.price)} บ./รู`}
-                {f.unit === 'fixed'     && `${fmt(f.price)} บาท`}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <button onClick={() => setShowEditFin(!showEditFin)} style={{ ...linkBtn, marginTop: 10 }}>
-          {showEditFin ? '▲ ซ่อน' : '✏️ แก้ราคางานตกแต่ง'}
-        </button>
-
-        {showEditFin && (
-          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {finishing.map((f, i) => (
-              <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ flex: 1, fontSize: 13, color: '#374151' }}>{f.name}</div>
-                <input type="number" value={f.price}
-                  onChange={e => { const n = [...finishing]; n[i] = { ...f, price: parseFloat(e.target.value) || 0 }; setFinishing(n); }}
-                  style={{ ...inputStyle, width: 90, marginBottom: 0 }} />
-              </div>
-            ))}
-            <button onClick={resetFinishing} style={{ ...linkBtn, color: '#dc2626' }}>↺ รีเซ็ตเป็นค่าเริ่มต้น</button>
-          </div>
-        )}
-      </div>}
 
       {/* ── ผลลัพธ์ ──────────────────────────────── */}
       {(sqm > 0 || isFixed) && (
@@ -313,12 +252,11 @@ export default function CalcPage() {
             {!isFixed && <Row label="พื้นที่" value={`${sqm.toFixed(4)} ตร.ม.`} light />}
             {!isFixed && <Row label={`ราคาวัสดุ (${fmt(mat.pricePerSqm)} × ${sqm.toFixed(4)})`} value={`${fmt(basePricePerPiece)} บาท`} light />}
             {isFixed   && <Row label="ราคาต่อชิ้น" value={`${fmt(basePricePerPiece)} บาท`} light />}
-            {finishing.filter(f => f.enabled).map(f => (
-              <Row key={f.id} label={f.name} value={`${fmt(calcFinishingCost(f))} บาท`} light />
-            ))}
+            {vinylMinApplied && <Row label={vinylMinApplied} value={`${fmt(pricePerPiece)} บาท`} light warn />}
             <div style={{ borderTop: '1px solid #334155', paddingTop: 12, marginTop: 6 }}>
               <Row label="ราคา / ชิ้น" value={`${fmt(pricePerPiece)} บาท`} big />
-              {qNum > 1 && <Row label={`จำนวน ${qNum} ชิ้น`} value={`${fmt(total)} บาท`} big />}
+              {qNum > 1 && <Row label={`จำนวน ${qNum} ชิ้น`} value={`${fmt(rawTotal)} บาท`} big />}
+              {minTotalApplied && <Row label={`ขั้นต่ำ ${mat.minTotal} บาท`} value={`${fmt(total)} บาท`} big warn />}
             </div>
           </div>
 
@@ -365,11 +303,11 @@ export default function CalcPage() {
   );
 }
 
-function Row({ label, value, light, big }: { label: string; value: string; light?: boolean; big?: boolean }) {
+function Row({ label, value, light, big, warn }: { label: string; value: string; light?: boolean; big?: boolean; warn?: boolean }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-      <span style={{ fontSize: big ? 14 : 12, color: big ? '#cbd5e1' : '#64748b' }}>{label}</span>
-      <span style={{ fontSize: big ? 18 : 13, fontWeight: big ? 800 : 600, color: big ? '#f1f5f9' : '#94a3b8' }}>{value}</span>
+      <span style={{ fontSize: big ? 14 : 12, color: warn ? '#fbbf24' : big ? '#cbd5e1' : '#64748b' }}>{label}</span>
+      <span style={{ fontSize: big ? 18 : 13, fontWeight: big ? 800 : 600, color: warn ? '#fbbf24' : big ? '#f1f5f9' : '#94a3b8' }}>{value}</span>
     </div>
   );
 }
