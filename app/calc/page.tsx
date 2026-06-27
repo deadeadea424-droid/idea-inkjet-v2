@@ -90,6 +90,7 @@ export default function CalcPage() {
   if (isVinyl && rawPerPiece > 0) {
     if (rawPerPiece < 100) { pricePerPiece = 100; vinylMinApplied = 'ขั้นต่ำ 100 บาท'; }
     else if (rawPerPiece < 150) { pricePerPiece = 150; vinylMinApplied = 'ขั้นต่ำ 150 บาท'; }
+    else if (rawPerPiece < 200 && qNum === 1) { pricePerPiece = 200; vinylMinApplied = 'ขั้นต่ำ 200 บาท (สั่ง 1 ผืน)'; }
   }
 
   const rawTotal = pricePerPiece * qNum;
