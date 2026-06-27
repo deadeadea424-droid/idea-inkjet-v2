@@ -234,7 +234,7 @@ export default function CalcPage() {
 
 function CalcApp({ empName, onLogout }: { empName: string; onLogout: () => void }) {
   const [materials, setMaterials] = useLocalStorage<Material[]>('calc_materials', DEFAULT_MATERIALS, MATERIALS_VER);
-  const [matId, setMatId] = useState('vinyl440');
+  const [matId, setMatId] = useState(DEFAULT_MATERIALS[0].id);
   const [width, setWidth] = useState('');
   const [height, setHeight] = useState('');
   const [unit, setUnit] = useState<'cm' | 'm' | 'in' | 'ft'>('cm');
