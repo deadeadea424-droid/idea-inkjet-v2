@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Material = { id: string; name: string; pricePerSqm: number };
+type Material = { id: string; name: string; pricePerSqm: number; fixedPrice?: number };
 type Finishing = { id: string; name: string; unit: 'sqm' | 'perimeter' | 'piece' | 'fixed'; price: number; enabled: boolean; qty?: number };
 
 const DEFAULT_MATERIALS: Material[] = [
@@ -17,24 +17,30 @@ const DEFAULT_MATERIALS: Material[] = [
   { id: 'future5', name: 'ฟิวเจอร์บอร์ด 5 มม.', pricePerSqm: 220 },
   { id: 'sticker_future5', name: 'สติ๊กเกอร์รีดฟิวเจอร์บอร์ด 5 มม.', pricePerSqm: 500 },
   { id: 'sticker_foam55', name: 'สติ๊กเกอร์รีดโฟมบอร์ด 5.5 มม.', pricePerSqm: 500 },
-  { id: 'sticker', name: 'สติ๊กเกอร์ทั่วไป', pricePerSqm: 120 },
-  { id: 'sticker_clear', name: 'สติ๊กเกอร์ใส', pricePerSqm: 160 },
-  { id: 'xbanner', name: 'X-Banner (ผ้า + โครง)', pricePerSqm: 0 },
+  { id: 'sticker_print', name: 'สติ๊กเกอร์พิมพ์', pricePerSqm: 400 },
+  { id: 'sticker_diecut', name: 'สติ๊กเกอร์พิมพ์ไดคัท', pricePerSqm: 400 },
+  { id: 'sticker_clear', name: 'สติ๊กเกอร์ใส', pricePerSqm: 500 },
+  { id: 'xbanner', name: 'X-Banner (ผ้า + โครง)', pricePerSqm: 0, fixedPrice: 350 },
+  { id: 'xstand_v60', name: 'X Stand ไวนิล 60×160 ซม.', pricePerSqm: 0, fixedPrice: 600 },
+  { id: 'xstand_v80', name: 'X Stand ไวนิล 80×180 ซม.', pricePerSqm: 0, fixedPrice: 800 },
+  { id: 'xstand_p60', name: 'X Stand กระดาษก๊อซซี่ PP 60×160 ซม.', pricePerSqm: 0, fixedPrice: 800 },
+  { id: 'xstand_p80', name: 'X Stand กระดาษก๊อซซี่ PP 80×180 ซม.', pricePerSqm: 0, fixedPrice: 1000 },
+  { id: 'rollup_p80', name: 'โรลอัพ กระดาษก๊อซซี่ PP 80×200 ซม.', pricePerSqm: 0, fixedPrice: 1500 },
 ];
 
 const DEFAULT_FINISHING: Finishing[] = [
   { id: 'eyelet', name: 'ตอกตาไก่', unit: 'piece', price: 5, enabled: false, qty: 4 },
   { id: 'rope', name: 'ม้วนขอบ + เชือก', unit: 'perimeter', price: 25, enabled: false },
   { id: 'hem', name: 'ม้วนขอบ (ไม่มีเชือก)', unit: 'perimeter', price: 15, enabled: false },
-  { id: 'lam_gloss', name: 'ลามิเนตมัน', unit: 'sqm', price: 40, enabled: false },
-  { id: 'lam_matte', name: 'ลามิเนตด้าน', unit: 'sqm', price: 50, enabled: false },
+  { id: 'lam_gloss', name: 'เคลือบใส', unit: 'sqm', price: 100, enabled: false },
+  { id: 'lam_matte', name: 'เคลือบด้าน', unit: 'sqm', price: 100, enabled: false },
   { id: 'frame_alu', name: 'กรอบอลูมิเนียม', unit: 'perimeter', price: 80, enabled: false },
   { id: 'install', name: 'ค่าติดตั้ง', unit: 'fixed', price: 200, enabled: false },
 ];
 
 const fmt = (n: number) => Math.round(n).toLocaleString('th-TH');
 
-const MATERIALS_VER = 'v5';
+const MATERIALS_VER = 'v6';
 
 function useLocalStorage<T>(key: string, init: T, version?: string): [T, (v: T) => void] {
   const [val, setVal] = useState<T>(init);
@@ -64,7 +70,7 @@ export default function CalcPage() {
   const [showEditMat, setShowEditMat] = useState(false);
   const [showEditFin, setShowEditFin] = useState(false);
   const [margin, setMargin] = useState('0');
-  const [xbannerFixed, setXbannerFixed] = useState('350');
+  const [fixedPrices, setFixedPrices] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
 
   const mat = materials.find(m => m.id === matId) ?? materials[0];
@@ -90,13 +96,12 @@ export default function CalcPage() {
     }
   }
 
-  const isXbanner = matId === 'xbanner';
-  const basePricePerPiece = isXbanner
-    ? parseFloat(xbannerFixed) || 0
-    : mat.pricePerSqm * sqm;
+  const isFixed = mat.fixedPrice !== undefined;
+  const fixedVal = parseFloat(fixedPrices[mat.id] ?? '') || mat.fixedPrice || 0;
+  const basePricePerPiece = isFixed ? fixedVal : mat.pricePerSqm * sqm;
   const finishingTotalPerPiece = finishing.reduce((s, f) => s + calcFinishingCost(f), 0);
   const rawPerPiece = basePricePerPiece + finishingTotalPerPiece;
-  const pricePerPiece = Math.max(rawPerPiece, sqm > 0 || isXbanner ? minNum : 0);
+  const pricePerPiece = Math.max(rawPerPiece, sqm > 0 || isFixed ? minNum : 0);
   const priceAfterMargin = pricePerPiece * (1 + marginPct / 100);
   const total = priceAfterMargin * qNum;
 
@@ -139,17 +144,20 @@ export default function CalcPage() {
               background: matId === m.id ? '#eff6ff' : 'white', cursor: 'pointer', textAlign: 'left',
             }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: matId === m.id ? '#1d4ed8' : '#1e293b' }}>{m.name}</div>
-              {m.id !== 'xbanner' && (
-                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{fmt(m.pricePerSqm)} บ./ตร.ม.</div>
-              )}
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                {m.fixedPrice !== undefined ? `${fmt(m.fixedPrice)} บ./ชิ้น` : `${fmt(m.pricePerSqm)} บ./ตร.ม.`}
+              </div>
             </button>
           ))}
         </div>
 
-        {isXbanner && (
+        {isFixed && (
           <div style={{ marginTop: 12 }}>
-            <label style={labelStyle}>ราคา X-Banner ต่อชิ้น (บาท)</label>
-            <input type="number" value={xbannerFixed} onChange={e => setXbannerFixed(e.target.value)} style={inputStyle} />
+            <label style={labelStyle}>ราคาต่อชิ้น (บาท)</label>
+            <input type="number"
+              value={fixedPrices[mat.id] ?? String(mat.fixedPrice ?? '')}
+              onChange={e => setFixedPrices(p => ({ ...p, [mat.id]: e.target.value }))}
+              style={inputStyle} />
           </div>
         )}
 
@@ -162,11 +170,15 @@ export default function CalcPage() {
             {materials.map((m, i) => (
               <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ flex: 1, fontSize: 13, color: '#374151' }}>{m.name}</div>
-                {m.id !== 'xbanner' && (
-                  <input type="number" value={m.pricePerSqm}
-                    onChange={e => { const n = [...materials]; n[i] = { ...m, pricePerSqm: parseFloat(e.target.value) || 0 }; setMaterials(n); }}
-                    style={{ ...inputStyle, width: 90, marginBottom: 0 }} />
-                )}
+                <input type="number"
+                  value={m.fixedPrice !== undefined ? m.fixedPrice : m.pricePerSqm}
+                  onChange={e => {
+                    const v = parseFloat(e.target.value) || 0;
+                    const n = [...materials];
+                    n[i] = m.fixedPrice !== undefined ? { ...m, fixedPrice: v } : { ...m, pricePerSqm: v };
+                    setMaterials(n);
+                  }}
+                  style={{ ...inputStyle, width: 90, marginBottom: 0 }} />
               </div>
             ))}
             <button onClick={resetMaterials} style={{ ...linkBtn, color: '#dc2626' }}>↺ รีเซ็ตเป็นค่าเริ่มต้น</button>
@@ -277,15 +289,15 @@ export default function CalcPage() {
       </div>
 
       {/* ── ผลลัพธ์ ──────────────────────────────── */}
-      {(sqm > 0 || isXbanner) && (
+      {(sqm > 0 || isFixed) && (
         <div style={{ ...card, background: '#1e293b', border: 'none' }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#94a3b8', marginBottom: 14 }}>สรุปราคา</div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <Row label="วัสดุ" value={mat.name} light />
-            {!isXbanner && <Row label="พื้นที่" value={`${sqm.toFixed(4)} ตร.ม.`} light />}
-            {!isXbanner && <Row label={`ราคาวัสดุ (${fmt(mat.pricePerSqm)} × ${sqm.toFixed(4)})`} value={`${fmt(basePricePerPiece)} บาท`} light />}
-            {isXbanner  && <Row label="ราคา X-Banner" value={`${fmt(basePricePerPiece)} บาท`} light />}
+            {!isFixed && <Row label="พื้นที่" value={`${sqm.toFixed(4)} ตร.ม.`} light />}
+            {!isFixed && <Row label={`ราคาวัสดุ (${fmt(mat.pricePerSqm)} × ${sqm.toFixed(4)})`} value={`${fmt(basePricePerPiece)} บาท`} light />}
+            {isFixed   && <Row label="ราคาต่อชิ้น" value={`${fmt(basePricePerPiece)} บาท`} light />}
             {finishing.filter(f => f.enabled).map(f => (
               <Row key={f.id} label={f.name} value={`${fmt(calcFinishingCost(f))} บาท`} light />
             ))}
