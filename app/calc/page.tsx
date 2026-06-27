@@ -104,6 +104,7 @@ export default function CalcPage() {
       `จำนวน: ${qNum} ${mat.id.startsWith('paper_') ? 'แผ่น' : 'ชิ้น'}`,
       `ราคา/ชิ้น: ${fmt(pricePerPiece)} บาท`,
       `รวม: ${fmt(total)} บาท`,
+      `ขอบคุณที่ใช้บริการครับ`,
     ].filter(Boolean).join('\n');
     navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2500); });
   }
